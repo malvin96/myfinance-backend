@@ -1,64 +1,54 @@
-import { addTransaction, getSummary, getHistory, getLast, deleteById } from "./ledger.js"
+import { setBalance, addTransaction, isLocked, lockLedger, unlockLedger } from "./ledger.js"
 
-const ACCOUNTS = ["cash","bca","ovo","gopay","shopeepay"]
-const CATS = {
-  makan:["makan","ayam","nasi","kopi","minum"],
-  transport:["grab","gojek","bensin","ojek"],
-  belanja:["belanja","indomaret","alfamart","market"],
-  tagihan:["listrik","air","internet","pulsa"]
+function normalize(txt) {
+  return txt.toLowerCase().replace(/\s+/g, " ").trim()
 }
 
-function detectUser(t){
-  if (t.startsWith("y ")) return "Y"
-  if (t.startsWith("m ")) return "M"
-  return "M"
-}
+export async function handleMessage(user, text) {
+  const t = normalize(text)
 
-function detectAccount(t){
-  return ACCOUNTS.find(a => t.includes(a)) || "cash"
-}
-
-function detectCategory(t){
-  for (const k in CATS) {
-    if (CATS[k].some(w => t.includes(w))) return k
-  }
-  return "lainnya"
-}
-
-function detectAmount(t){
-  const m = t.match(/(\d+)(rb|ribu|k|jt)?/)
-  if (!m) return null
-  let n = parseInt(m[1],10)
-  if (m[2]==="rb" || m[2]==="k") n*=1000
-  if (m[2]==="jt") n*=1000000
-  return n
-}
-
-export async function handleMessage(chat_id, raw){
-  const t = raw.toLowerCase().trim()
-
-  if (t === "rekap" || t === "saldo") return getSummary(chat_id)
-  if (t.startsWith("history")) return getHistory(chat_id)
-
-  if (t === "undo" || t === "hapus") {
-    const u = detectUser(t)
-    const last = getLast(chat_id, u)
-    if (!last) return "Tidak ada transaksi."
-    deleteById(last.id)
-    return "✅ Transaksi terakhir dihapus."
+  // RESET
+  if (t === "reset saldo acuan") {
+    unlockLedger()
+    return "🔄 Saldo acuan dibuka. Silakan set saldo."
   }
 
-  const user = detectUser(t)
-  const amount = detectAmount(t)
-  if (!amount) return "❌ Nominal tidak ditemukan."
+  // CLOSING
+  if (t === "closing") {
+    lockLedger()
+    return "🔒 Closing selesai. Neraca dikunci."
+  }
 
-  const type = (t.includes("gaji") || t.includes("pendapatan")) ? "income" : "expense"
-  const account = detectAccount(t)
-  const category = detectCategory(t)
-  const tags = (t.match(/#\w+/g) || []).join(" ")
-  const note = t.replace(/#\w+/g,"").replace(/\d+(rb|ribu|k|jt)?/,"").trim()
+  // SET SALDO
+  if (t.startsWith("set saldo")) {
+    if (isLocked()) return "❌ Sudah closing. Reset dulu."
 
-  addTransaction(chat_id,{ user, account, category, note, amount, type, tags })
+    const parts = t.split(" ")
+    if (parts.length < 5) return "❌ Format: set saldo M bca 100000"
 
-  return `✅ ${user} ${type==="income"?"mendapat":"keluar"} Rp${amount.toLocaleString("id-ID")} (${category}) via ${account} ${tags}`
+    const userCode = parts[2].toUpperCase()
+    const account = parts[3]
+    const amount = Number(parts[4])
+
+    if (!amount && amount !== 0) return "❌ Nominal tidak valid"
+
+    setBalance(userCode, account, amount)
+    return `✅ Saldo ${userCode} ${account} = Rp${amount.toLocaleString()}`
+  }
+
+  // TRANSACTION
+  const m = t.match(/^([my]) (.+) ([0-9]+) via (.+)$/)
+  if (m) {
+    if (!isLocked()) return "❌ Belum closing."
+
+    const userCode = m[1].toUpperCase()
+    const note = m[2]
+    const amount = -Number(m[3])
+    const account = m[4]
+
+    addTransaction(userCode, amount, "expense", account, note)
+    return `✅ ${userCode} keluar Rp${Math.abs(amount).toLocaleString()} via ${account}`
+  }
+
+  return "❓ Perintah tidak dikenali"
 }
