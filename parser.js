@@ -3,11 +3,28 @@ import { exportAll } from "./export.js"
 import { createSnapshot } from "./snapshot.js"
 import { getAggregates } from "./aggregate.js"
 
-// Helper: Format Rupiah (Biar outputnya Rp 1.000.000, bukan 1000000)
+// 1. Helper Format Rupiah
 const fmt = (n) => "Rp " + parseInt(n).toLocaleString("id-ID")
 
-function parseAmount(x) {
-  return parseInt(x.replace(/[.,]/g, ""))
+// 2. Helper Cerdas Baca Angka (Fix: Support k, rb, jt, dan titik ribuan)
+function parseAmount(text) {
+  let clean = text.toLowerCase().trim()
+  
+  // Jika pakai satuan 'jt' (Juta) -> misal: 1.5jt atau 2jt
+  if (clean.includes("jt")) {
+    // Ubah koma jadi titik (jaga-jaga user ngetik 1,5jt)
+    let num = parseFloat(clean.replace("jt", "").replace(",", "."))
+    return num * 1000000
+  }
+  
+  // Jika pakai satuan 'rb' atau 'k' (Ribu) -> misal: 50rb atau 10k
+  if (clean.includes("rb") || clean.includes("k")) {
+    let num = parseFloat(clean.replace("rb", "").replace("k", "").replace(",", "."))
+    return num * 1000
+  }
+
+  // Jika angka biasa (Format Indo: 100.000) -> Hapus titik ribuan
+  return parseFloat(clean.replace(/\./g, "").replace(",", "."))
 }
 
 export async function handleMessage(chat_id, text) {
@@ -15,37 +32,36 @@ export async function handleMessage(chat_id, text) {
   text = text.toLowerCase().trim()
 
   // =============================
-  // SET SALDO (UI RAPI)
+  // SET SALDO
   // =============================
-  let m = text.match(/set saldo (m|y)\s+(\w+)\s+([\d.,]+)/)
+  // Regex diperbarui untuk menangkap k/rb/jt
+  let m = text.match(/set saldo (m|y)\s+(\w+)\s+([\d.,a-z]+)/)
   if (m) {
     const user = m[1].toUpperCase()
     const acc = m[2].toUpperCase()
     const amount = parseAmount(m[3])
     
+    // Validasi kalau hasil parse NaN
+    if (isNaN(amount)) return "❌ *Format angka salah.*"
+
     setBalance(chat_id, user, acc, amount)
     
     return `💾 *SALDO DI-UPDATE*\n──────────────────\n👤 User : **${user}**\n🏦 Akun : **${acc}**\n💰 Total : **${fmt(amount)}**\n──────────────────`
   }
 
   // =============================
-  // SALDO (DARI JSON -> LIST RAPI)
+  // SALDO
   // =============================
   if (text === "saldo") {
     const b = getBalances(chat_id)
-    
-    // Kalau kosong/error
     if (!b || Object.keys(b).length === 0) return "⚠️ *Belum ada data saldo.*"
 
     let output = "📊 *STATUS KEUANGAN*\n"
     let grandTotal = 0
 
-    // Loop User (M/Y)
     for (let user in b) {
       output += `\n👤 **${user.toUpperCase()}**`
       let subtotal = 0
-      
-      // Loop Akun
       for (let acc in b[user]) {
         const val = b[user][acc]
         subtotal += val
@@ -54,7 +70,6 @@ export async function handleMessage(chat_id, text) {
       output += `\n   └ *Sub: ${fmt(subtotal)}*\n`
       grandTotal += subtotal
     }
-
     output += `\n══════════════════\n💵 **TOTAL ASET: ${fmt(grandTotal)}**`
     return output
   }
@@ -79,9 +94,10 @@ export async function handleMessage(chat_id, text) {
   if (text === "laporan" || text === "rekap") return getAggregates(chat_id)
 
   // =============================
-  // TRANSFER (UI STRUK)
+  // TRANSFER
   // =============================
-  let t = text.match(/(m|y)\s+transfer\s+([\d.,]+)\s+dari\s+(\w+)\s+ke\s+(\w+)/)
+  // Regex diperbarui: ([\d.,a-z]+) supaya baca huruf k/rb/jt
+  let t = text.match(/(m|y)\s+transfer\s+([\d.,a-z]+)\s+dari\s+(\w+)\s+ke\s+(\w+)/)
   if (t) {
     const amt = parseAmount(t[2])
     addTransaction(chat_id, {
@@ -95,14 +111,17 @@ export async function handleMessage(chat_id, text) {
   }
 
   // =============================
-  // TRANSAKSI (UI INCOME/EXPENSE)
+  // TRANSAKSI
   // =============================
-  let tx = text.match(/(m|y)\s+(.+)\s+([\d.,]+)/)
+  // Regex diperbarui: ([\d.,a-z]+)
+  let tx = text.match(/(m|y)\s+(.+)\s+([\d.,a-z]+)/)
   if (tx) {
     const user = tx[1].toUpperCase()
     const note = tx[2].trim()
     const amount = parseAmount(tx[3])
     
+    if (isNaN(amount)) return "❌ *Gagal baca nominal.* Coba: '10k' atau '50000'"
+
     const isMasuk = (
       note.includes("gaji") ||
       note.includes("bonus") ||
