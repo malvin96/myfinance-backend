@@ -1,66 +1,91 @@
-import { addTransaction, getBalances, setBalance, getAllTransactions } from "./ledger.js"
+import { addTransaction, setBalance, getBalances } from "./ledger.js"
 import { exportAll } from "./export.js"
-import { getSnapshot } from "./snapshot.js"
+import { createSnapshot } from "./snapshot.js"
 import { getAggregates } from "./aggregate.js"
  
-function parseAmount(x){
-  return parseInt(x.replace(/[.,]/g,""))
+function parseAmount(x) {
+  return parseInt(x.replace(/[.,]/g, ""))
 }
  
-export async function handleMessage(chat_id, text){
+export async function handleMessage(chat_id, text) {
+  if (!text) return "❌ Pesan kosong"
   text = text.toLowerCase().trim()
  
-  if(!text) return "❌ Empty"
- 
-  // set saldo
-  let m = text.match(/set saldo (m|y) (\w+) ([\d.,]+)/)
-  if(m){
+  // =============================
+  // SET SALDO
+  // =============================
+  let m = text.match(/set saldo (m|y)\s+(\w+)\s+([\d.,]+)/)
+  if (m) {
     setBalance(chat_id, m[1].toUpperCase(), m[2], parseAmount(m[3]))
-    return `✅ saldo ${m[1].toUpperCase()} ${m[2]}`
+    return `✅ Saldo ${m[1].toUpperCase()} ${m[2]} diset`
   }
  
-  // saldo
-  if(text==="saldo"){
+  // =============================
+  // SALDO
+  // =============================
+  if (text === "saldo") {
     const b = getBalances(chat_id)
-    return JSON.stringify(b,null,2)
+    return JSON.stringify(b, null, 2)
   }
  
-  // export
-  if(text==="export") return exportAll(chat_id)
+  // =============================
+  // EXPORT
+  // =============================
+  if (text === "export") return exportAll(chat_id)
  
-  // snapshot
-  if(text==="snapshot") return getSnapshot(chat_id)
+  // =============================
+  // SNAPSHOT
+  // =============================
+  if (text.startsWith("snapshot")) {
+    const label = text.replace("snapshot", "").trim()
+    const s = createSnapshot(chat_id, label)
+    return `📸 Snapshot tersimpan (${s.time})`
+  }
  
-  // laporan
-  if(text==="laporan") return getAggregates(chat_id)
+  // =============================
+  // LAPORAN
+  // =============================
+  if (text === "laporan" || text === "rekap") return getAggregates(chat_id)
  
-  // transfer
-  let t = text.match(/(m|y) transfer ([\d.,]+) dari (\w+) ke (\w+)/)
-  if(t){
-    addTransaction(chat_id,{
-      user:t[1].toUpperCase(),
-      type:"transfer",
-      amount:parseAmount(t[2]),
-      from:t[3],
-      to:t[4]
+  // =============================
+  // TRANSFER
+  // =============================
+  let t = text.match(/(m|y)\s+transfer\s+([\d.,]+)\s+dari\s+(\w+)\s+ke\s+(\w+)/)
+  if (t) {
+    addTransaction(chat_id, {
+      user: t[1].toUpperCase(),
+      type: "transfer",
+      amount: parseAmount(t[2]),
+      from: t[3],
+      to: t[4]
     })
-    return "🔁 transfer tercatat"
+    return "🔁 Transfer tercatat"
   }
  
-  // transaksi
-  let tx = text.match(/(m|y) (.+) ([\d.,]+)/)
-  if(tx){
+  // =============================
+  // TRANSAKSI
+  // =============================
+  let tx = text.match(/(m|y)\s+(.+)\s+([\d.,]+)/)
+  if (tx) {
     const note = tx[2]
-    const type = note.includes("gaji")||note.includes("refund") ? "masuk":"keluar"
-    addTransaction(chat_id,{
-      user:tx[1].toUpperCase(),
+    const amount = parseAmount(tx[3])
+    const type = (
+      note.includes("gaji") ||
+      note.includes("bonus") ||
+      note.includes("refund") ||
+      note.includes("cashback")
+    ) ? "masuk" : "keluar"
+ 
+    addTransaction(chat_id, {
+      user: tx[1].toUpperCase(),
       type,
-      amount:parseAmount(tx[3]),
+      amount,
       note
     })
-    return "✅ transaksi tercatat"
+ 
+    const icon = type === "masuk" ? "➕" : "➖"
+    return `${icon} ${tx[1].toUpperCase()} ${type} Rp${amount.toLocaleString()}`
   }
  
-  return "❓ perintah tidak dikenali"
+  return "❓ Perintah tidak dikenali"
 }
- 
