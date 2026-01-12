@@ -1,18 +1,22 @@
 import Database from "better-sqlite3"
 
-export const db = new Database("myfinance.db")
+export const db = new Database("finance.db")
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  chat_id TEXT,
   user TEXT,
-  type TEXT,
-  amount INTEGER,
   account TEXT,
   category TEXT,
   note TEXT,
-  tags TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  amount INTEGER,
+  type TEXT,
+  created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS balances (
+  user TEXT,
+  account TEXT,
+  balance INTEGER
 );
 `)
