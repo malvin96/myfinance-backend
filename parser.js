@@ -1,27 +1,37 @@
-import * as L from "./ledger.js"
+import { loadDB } from "./db.js"
+import { aggregate } from "./aggregate.js"
+import { getSnapshots } from "./snapshot.js"
 
-export async function handleMessage(_, text){
-  const t=text.toLowerCase().trim()
-  let m
+function todayRange() {
+  const d = new Date()
+  const start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString()
+  const end = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23,59,59).toISOString()
+  return { start, end }
+}
 
-  if(t==="reset saldo acuan") return L.resetSaldo()
-  if(t==="closing") return L.closing()
-  if(t==="export") return L.exportAll()
-  if(t==="saldo") return JSON.stringify(L.getDB().users,null,2)
+function monthRange() {
+  const d = new Date()
+  const start = new Date(d.getFullYear(), d.getMonth(), 1).toISOString()
+  const end = new Date(d.getFullYear(), d.getMonth()+1, 0, 23,59,59).toISOString()
+  return { start, end }
+}
 
-  if(m=t.match(/^set saldo (m|y) (\w+) (\d+)$/)) return L.setSaldo(m[1].toUpperCase(),m[2],+m[3])
-  if(m=t.match(/^(m|y) transfer (\d+) dari (\w+) ke (\w+)$/))
-    return L.transfer(m[1].toUpperCase(),m[4],m[1].toUpperCase(),m[5],+m[2])
-  if(m=t.match(/^(m|y) transfer (\d+) ke (m|y) via (\w+)$/))
-    return L.transfer(m[1].toUpperCase(),m[4],m[3].toUpperCase(),m[4],+m[2])
+export function exportAll() {
+  const db = loadDB()
 
-  if(m=t.match(/^(m|y) invest (\d+) ke (\w+) via (\w+)$/))
-    return L.invest(m[1].toUpperCase(),m[5],m[4],+m[2])
-  if(m=t.match(/^(m|y) withdraw (\d+) dari (\w+) ke (\w+)$/))
-    return L.withdraw(m[1].toUpperCase(),m[4],m[5],+m[2])
+  const today = todayRange()
+  const month = monthRange()
 
-  if(m=t.match(/^(m|y) (.+) (\d+) via (\w+)$/))
-    return L.addNatural(m[1].toUpperCase(),+m[3],m[4],m[2])
-
-  return "❓"
+  return {
+    meta: {
+      exportedAt: new Date().toISOString(),
+      locked: db.locked
+    },
+    balances: db.users,
+    investments: db.investments,
+    today: aggregate(today.start, today.end),
+    month: aggregate(month.start, month.end),
+    snapshots: getSnapshots(),
+    ledger: db.ledger
+  }
 }
