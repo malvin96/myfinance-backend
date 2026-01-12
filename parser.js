@@ -1,63 +1,64 @@
-import { addTransaction, getSummary, getHistory } from "./ledger.js"
+import { addTransaction, getSummary, getHistory, getLast, deleteById } from "./ledger.js"
 
-export async function handleMessage(chatId, text) {
-  text = text.toLowerCase().trim()
+const ACCOUNTS = ["cash","bca","ovo","gopay","shopeepay"]
+const CATS = {
+  makan:["makan","ayam","nasi","kopi","minum"],
+  transport:["grab","gojek","bensin","ojek"],
+  belanja:["belanja","indomaret","alfamart","market"],
+  tagihan:["listrik","air","internet","pulsa"]
+}
 
-  // detect summary
-  if (text.includes("rekap") || text.includes("summary")) {
-    return await getSummary(chatId)
+function detectUser(t){
+  if (t.startsWith("y ")) return "Y"
+  if (t.startsWith("m ")) return "M"
+  return "M"
+}
+
+function detectAccount(t){
+  return ACCOUNTS.find(a => t.includes(a)) || "cash"
+}
+
+function detectCategory(t){
+  for (const k in CATS) {
+    if (CATS[k].some(w => t.includes(w))) return k
+  }
+  return "lainnya"
+}
+
+function detectAmount(t){
+  const m = t.match(/(\d+)(rb|ribu|k|jt)?/)
+  if (!m) return null
+  let n = parseInt(m[1],10)
+  if (m[2]==="rb" || m[2]==="k") n*=1000
+  if (m[2]==="jt") n*=1000000
+  return n
+}
+
+export async function handleMessage(chat_id, raw){
+  const t = raw.toLowerCase().trim()
+
+  if (t === "rekap" || t === "saldo") return getSummary(chat_id)
+  if (t.startsWith("history")) return getHistory(chat_id)
+
+  if (t === "undo" || t === "hapus") {
+    const u = detectUser(t)
+    const last = getLast(chat_id, u)
+    if (!last) return "Tidak ada transaksi."
+    deleteById(last.id)
+    return "✅ Transaksi terakhir dihapus."
   }
 
-  if (text.includes("history")) {
-    return await getHistory(chatId)
-  }
+  const user = detectUser(t)
+  const amount = detectAmount(t)
+  if (!amount) return "❌ Nominal tidak ditemukan."
 
-  // detect user (M / Y)
-  let user = "M"
-  if (text.startsWith("y ")) user = "Y"
-  if (text.startsWith("m ")) user = "M"
+  const type = (t.includes("gaji") || t.includes("pendapatan")) ? "income" : "expense"
+  const account = detectAccount(t)
+  const category = detectCategory(t)
+  const tags = (t.match(/#\w+/g) || []).join(" ")
+  const note = t.replace(/#\w+/g,"").replace(/\d+(rb|ribu|k|jt)?/,"").trim()
 
-  // amount
-  const match = text.match(/(\d+(?:\.\d+)?)(\s?rb|\s?k|\s?jt)?/)
-  if (!match) {
-    return "❌ Tidak ada nominal terdeteksi."
-  }
+  addTransaction(chat_id,{ user, type, amount, account, category, note, tags })
 
-  let amount = parseFloat(match[1])
-  const unit = match[2] || ""
-  if (unit.includes("rb") || unit.includes("k")) amount *= 1000
-  if (unit.includes("jt")) amount *= 1000000
-
-  // detect income / expense
-  let type = "expense"
-  if (text.includes("gaji") || text.includes("income") || text.includes("pendapatan")) {
-    type = "income"
-  }
-
-  // detect account
-  let account = "cash"
-  if (text.includes("ovo")) account = "ovo"
-  if (text.includes("gopay")) account = "gopay"
-  if (text.includes("shopee")) account = "shopeepay"
-  if (text.includes("bca")) account = "bca"
-
-  // detect category
-  let category = "lainnya"
-  if (text.includes("makan") || text.includes("ayam") || text.includes("nasi")) category = "makan"
-  if (text.includes("listrik") || text.includes("air")) category = "tagihan"
-  if (text.includes("bensin") || text.includes("grab")) category = "transport"
-  if (text.includes("belanja") || text.includes("indomaret") || text.includes("alfamart")) category = "belanja"
-
-  const note = text.replace(match[0], "").trim()
-
-  await addTransaction(chatId, {
-    user,
-    type,
-    amount,
-    account,
-    category,
-    note
-  })
-
-  return `✅ ${user} ${type === "income" ? "mendapat" : "mengeluarkan"} Rp${amount.toLocaleString()} (${category}) via ${account}`
+  return `✅ ${user} ${type==="income"?"mendapat":"keluar"} Rp${amount.toLocaleString("id-ID")} (${category}) via ${account} ${tags}`
 }
