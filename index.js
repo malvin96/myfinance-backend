@@ -1,17 +1,18 @@
 import express from "express"
 import cors from "cors"
 import { handleMessage } from "./parser.js"
-import "./scheduler.js"
 
 const app = express()
 app.use(cors())
 app.use(express.json())
 
-app.get("/", (req,res)=> res.send("MY FINANCE OK"))
+app.get("/", (req,res)=>{
+  res.send("MY FINANCE v2.2 OK")
+})
 
 app.post("/webhook", async (req,res)=>{
   try{
-    const text = req.body.text || ""
+    const text = req.body.text || req.body.message || ""
     const reply = await handleMessage(req.body.chat_id || "default", text)
     res.json({ reply })
   }catch(e){
@@ -21,4 +22,4 @@ app.post("/webhook", async (req,res)=>{
 })
 
 const PORT = process.env.PORT || 3000
-app.listen(PORT, ()=> console.log("RUNNING ON", PORT))
+app.listen(PORT, ()=> console.log("MY FINANCE RUNNING ON", PORT))
