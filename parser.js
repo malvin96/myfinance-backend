@@ -1,63 +1,27 @@
-import { setSaldo, addTransaction, getSaldo, getLedger, closing } from "./ledger.js"
+import * as L from "./ledger.js"
 
-export async function handleMessage(chatId, text) {
-  const t = text.toLowerCase().trim()
+export async function handleMessage(_, text){
+  const t=text.toLowerCase().trim()
+  let m
 
-  // SET SALDO
-  const setMatch = t.match(/^set saldo (m|y) (\w+) (\d+)$/)
-  if (setMatch) {
-    const user = setMatch[1].toUpperCase()
-    const akun = setMatch[2]
-    const jumlah = Number(setMatch[3])
+  if(t==="reset saldo acuan") return L.resetSaldo()
+  if(t==="closing") return L.closing()
+  if(t==="export") return L.exportAll()
+  if(t==="saldo") return JSON.stringify(L.getDB().users,null,2)
 
-    setSaldo(chatId, user, akun, jumlah)
-    return `✅ Saldo ${user} ${akun} = Rp${jumlah.toLocaleString()}`
-  }
+  if(m=t.match(/^set saldo (m|y) (\w+) (\d+)$/)) return L.setSaldo(m[1].toUpperCase(),m[2],+m[3])
+  if(m=t.match(/^(m|y) transfer (\d+) dari (\w+) ke (\w+)$/))
+    return L.transfer(m[1].toUpperCase(),m[4],m[1].toUpperCase(),m[5],+m[2])
+  if(m=t.match(/^(m|y) transfer (\d+) ke (m|y) via (\w+)$/))
+    return L.transfer(m[1].toUpperCase(),m[4],m[3].toUpperCase(),m[4],+m[2])
 
-  // CLOSING
-  if (t === "closing") {
-    closing(chatId)
-    return "🔒 Closing selesai. Neraca dikunci."
-  }
+  if(m=t.match(/^(m|y) invest (\d+) ke (\w+) via (\w+)$/))
+    return L.invest(m[1].toUpperCase(),m[5],m[4],+m[2])
+  if(m=t.match(/^(m|y) withdraw (\d+) dari (\w+) ke (\w+)$/))
+    return L.withdraw(m[1].toUpperCase(),m[4],m[5],+m[2])
 
-  // SALDO
-  if (t === "saldo") {
-    const data = getSaldo(chatId)
-    let out = "📊 SALDO KELUARGA\n\n"
+  if(m=t.match(/^(m|y) (.+) (\d+) via (\w+)$/))
+    return L.addNatural(m[1].toUpperCase(),+m[3],m[4],m[2])
 
-    for (const u of ["M", "Y"]) {
-      out += `👤 ${u}\n`
-      let total = 0
-      for (const a in data[u]) {
-        total += data[u][a]
-        out += `- ${a}: Rp${data[u][a].toLocaleString()}\n`
-      }
-      out += `TOTAL ${u}: Rp${total.toLocaleString()}\n\n`
-    }
-    return out
-  }
-
-  // EXPORT
-  if (t === "export") {
-    const ledger = getLedger(chatId)
-    return (
-      "=== MY FINANCE LEDGER ===\n" +
-      ledger.map(l => `${l.time} | ${l.user} | ${l.type} | ${l.akun} | ${l.amount}`).join("\n")
-    )
-  }
-
-  // TRANSAKSI
-  const trx = t.match(/^(m|y) (masuk|keluar) (\d+)(?: (.+))? via (\w+)$/)
-  if (trx) {
-    const user = trx[1].toUpperCase()
-    const type = trx[2] === "masuk" ? "IN" : "OUT"
-    const amount = Number(trx[3])
-    const note = trx[4] || "-"
-    const akun = trx[5]
-
-    addTransaction(chatId, { user, type, amount, akun, note })
-    return `✅ ${user} ${type === "IN" ? "masuk" : "keluar"} Rp${amount.toLocaleString()} via ${akun}`
-  }
-
-  return "❓ Perintah tidak dikenali"
+  return "❓"
 }
