@@ -1,70 +1,60 @@
-import { db } from "./db.js"
+import db from "./db.js"
 
-/*
-Ledger = satu-satunya sumber kebenaran keuangan
-Tidak ada saldo statis.
-Saldo = SUM(transactions)
-*/
+// Tambah transaksi baru
+export async function addTransaction(chatId, data) {
+  const { user, type, amount, account, category, note } = data
 
-export function addTransaction({
-  telegram_id,
-  user_code,
-  type,
-  account = "cash",
-  asset = null,
-  category = "lainnya",
-  need_type = "kebutuhan",
-  amount,
-  note = "",
-  tags = ""
-}) {
-  const stmt = db.prepare(`
-    INSERT INTO transactions 
-    (telegram_id, user_code, type, account, asset, category, need_type, amount, note, tags)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
-
-  stmt.run(
-    telegram_id,
-    user_code,
-    type,
-    account,
-    asset,
-    category,
-    need_type,
-    amount,
-    note,
-    tags
+  await db.run(
+    `INSERT INTO transactions
+     (chat_id, user, type, amount, account, category, note, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+    [chatId, user, type, amount, account, category, note]
   )
 }
 
-export function getSummary(telegram_id) {
-  const rows = db.prepare(`
-    SELECT 
-      user_code,
-      SUM(CASE WHEN type='income' THEN amount ELSE -amount END) as balance
-    FROM transactions
-    WHERE telegram_id = ?
-    GROUP BY user_code
-  `).all(telegram_id)
+// Rekap saldo & summary
+export async function getSummary(chatId) {
+  const rows = await db.all(
+    `SELECT user, type, SUM(amount) as total
+     FROM transactions
+     WHERE chat_id = ?
+     GROUP BY user, type`,
+    [chatId]
+  )
 
-  let out = "📊 Saldo:\n"
+  let M_in = 0, M_out = 0, Y_in = 0, Y_out = 0
+
   for (const r of rows) {
-    out += `${r.user_code}: Rp ${r.balance.toLocaleString("id-ID")}\n`
+    if (r.user === "M" && r.type === "income") M_in = r.total
+    if (r.user === "M" && r.type === "expense") M_out = r.total
+    if (r.user === "Y" && r.type === "income") Y_in = r.total
+    if (r.user === "Y" && r.type === "expense") Y_out = r.total
   }
 
-  return out
+  return `
+📊 *REKAP*
+M ➜ Masuk: Rp${M_in.toLocaleString()} | Keluar: Rp${M_out.toLocaleString()} | Net: Rp${(M_in - M_out).toLocaleString()}
+Y ➜ Masuk: Rp${Y_in.toLocaleString()} | Keluar: Rp${Y_out.toLocaleString()} | Net: Rp${(Y_in - Y_out).toLocaleString()}
+Total Keluarga: Rp${(M_in + Y_in - M_out - Y_out).toLocaleString()}
+`
 }
 
-export function getLastTransaction(telegram_id, user_code) {
-  return db.prepare(`
-    SELECT * FROM transactions
-    WHERE telegram_id=? AND user_code=?
-    ORDER BY id DESC
-    LIMIT 1
-  `).get(telegram_id, user_code)
-}
+// History transaksi
+export async function getHistory(chatId) {
+  const rows = await db.all(
+    `SELECT user, type, amount, category, account, note, created_at
+     FROM transactions
+     WHERE chat_id = ?
+     ORDER BY id DESC
+     LIMIT 20`,
+    [chatId]
+  )
 
-export function deleteTransaction(id) {
-  db.prepare(`DELETE FROM transactions WHERE id=?`).run(id)
+  if (rows.length === 0) return "Belum ada transaksi."
+
+  return rows
+    .map(r =>
+      `${r.created_at} | ${r.user} | ${r.type === "income" ? "+" : "-"}Rp${r.amount.toLocaleString()} | ${r.category} | ${r.account} | ${r.note}`
+    )
+    .join("\n")
 }
