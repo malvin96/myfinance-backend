@@ -6,23 +6,19 @@ const app = express()
 app.use(cors())
 app.use(express.json())
 
-app.get("/", (req, res) => {
+app.get("/", (req,res) => {
   res.send("MY FINANCE BACKEND OK")
 })
 
-app.post("/webhook", async (req, res) => {
+app.post("/webhook", async (req,res) => {
   try {
-    console.log("REQ BODY:", req.body)
+    const text = req.body.text || ""
+    const user = req.body.user || "M"
 
-    const chat_id = req.body.chat_id || "default"
-    const text = req.body.text || req.body.message || ""
-
-    if (!text) return res.json({ reply: "❌ Empty message" })
-
-    const reply = await handleMessage(chat_id, text)
+    const reply = await handleMessage(user, text)
     res.json({ reply })
   } catch (e) {
-    console.error("ERROR:", e)
+    console.error(e)
     res.json({ reply: "⚠️ Server error" })
   }
 })
