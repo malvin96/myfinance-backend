@@ -2,11 +2,11 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 
-const DIR = path.join(process.cwd(),"data");
-const DB = path.join(DIR,"myfinance.db");
+const DIR = path.join(process.cwd(), "data");
+const DB = path.join(DIR, "myfinance.db");
 
 export function initDB() {
-  if (!fs.existsSync(DIR)) fs.mkdirSync(DIR,{recursive:true});
+  if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
   const db = new Database(DB);
   db.exec(`CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY, ts TEXT, user TEXT, account TEXT, amount INTEGER, category TEXT, note TEXT)`);
   db.exec(`CREATE TABLE IF NOT EXISTS budget(cat TEXT PRIMARY KEY, amount INTEGER)`);
@@ -17,8 +17,7 @@ const open = () => new Database(DB);
 
 export function addTx(p) {
   const db = open();
-  db.prepare(`INSERT INTO ledger VALUES(null,datetime('now','localtime'),?,?,?,?,?)`)
-    .run(p.user, p.account, p.amount, p.category, p.note);
+  db.prepare(`INSERT INTO ledger VALUES(null, datetime('now','localtime'), ?, ?, ?, ?, ?)`).run(p.user, p.account, p.amount, p.category, p.note);
   db.close();
 }
 
@@ -31,18 +30,18 @@ export function getSaldo(acc) {
   return res?.s || 0;
 }
 
-export function getHistory() {
+export function getRekapLengkap() {
   const db = open();
-  const rows = db.prepare(`SELECT * FROM ledger ORDER BY ts DESC LIMIT 10`).all();
+  const total = db.prepare(`SELECT SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) income, SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END) expense, SUM(amount) net FROM ledger`).get();
+  const perUser = db.prepare(`SELECT user, SUM(amount) as balance FROM ledger GROUP BY user`).all();
+  const perAccount = db.prepare(`SELECT account, SUM(amount) as balance FROM ledger GROUP BY account HAVING balance != 0`).all();
   db.close();
-  return rows;
+  return { total, perUser, perAccount };
 }
 
-export function setInitialSaldo(p) {
+export function getHistory() {
   const db = open();
-  db.prepare(`INSERT INTO ledger VALUES(null,datetime('now','localtime'),?,?,?,'Saldo Awal',?)`)
-    .run(p.user, p.account, p.amount, p.note);
-  db.close();
+  return db.prepare(`SELECT * FROM ledger ORDER BY ts DESC LIMIT 10`).all();
 }
 
 export function getBudgetValue(cat) {
