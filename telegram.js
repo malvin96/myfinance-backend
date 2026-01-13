@@ -4,7 +4,7 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-const API = `https://api.telegram.org/bot${TOKEN}`;
+const API = `https://api.telegram.org/bot$8506935267:AAHDSnSAQ8Pb9f8oWMpPNYIbM-7YLt0fNvg`;
 let offset = 0;
 
 async function api(method, body = {}) {
