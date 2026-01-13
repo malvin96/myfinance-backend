@@ -19,32 +19,28 @@ function parseLine(text, senderId) {
 
   const cleanT = cleanText.toLowerCase();
 
-  // Histori Periode
-  if (cleanT.startsWith("history ")) {
-    return { type: "history_period", period: cleanT.replace("history ", "").trim() };
+  if (cleanT.startsWith("set budget ")) {
+    const parts = cleanT.split(" ");
+    return { type: "set_budget", category: parts[2], amount: extractAmount(cleanT) };
   }
-
-  // Set Saldo
+  if (cleanT === "cek budget") return { type: "cek_budget" };
+  if (cleanT.startsWith("cari ")) return { type: "search", query: cleanT.replace("cari ", "").trim() };
+  if (cleanT.startsWith("history ")) return { type: "history_period", period: cleanT.replace("history ", "").trim() };
   if (cleanT.startsWith("set saldo ")) {
     const acc = ACCOUNTS.find(a => cleanT.includes(a)) || "cash";
     return { type: "set_saldo", user, account: acc, amount: extractAmount(cleanT), note: "Set Saldo Awal" };
   }
-
-  // Transfer Akun
   if (cleanT.startsWith("pindah ")) {
     const amount = extractAmount(cleanT);
     const from = ACCOUNTS.find(a => cleanT.includes(a)) || "bca";
     const to = ACCOUNTS.filter(a => a !== from).find(a => cleanT.includes(a)) || "cash";
     return { type: "transfer_akun", user, from, to, amount };
   }
-
-  // Transfer User
   if (cleanT.startsWith("kasih ")) {
     const target = (cleanT.includes(" y ") || cleanT.endsWith(" y")) ? "Y" : "M";
     return { type: "transfer_user", fromUser: user, toUser: target, amount: extractAmount(cleanT), account: ACCOUNTS.find(a => cleanT.includes(a)) || "cash" };
   }
 
-  // Kembalian & Transaksi
   let amount = extractAmount(cleanT);
   if (cleanT.includes("kembali")) {
     const parts = cleanT.split("kembali");
