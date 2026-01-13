@@ -1,6 +1,3 @@
-// db.js
-// MY FINANCE DATABASE — SQLITE (PERSISTENT, RENDER SAFE)
-
 const fs = require("fs");
 const path = require("path");
 const Database = require("better-sqlite3");
