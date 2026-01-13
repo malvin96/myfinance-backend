@@ -1,7 +1,8 @@
 import express from "express";
+import Database from "better-sqlite3";
 import { pollUpdates } from "./telegram.js";
 import { parseInput } from "./parser.js";
-import { initDB, addTx, getSaldo, getRekapLengkap, getHistoryByPeriod, getBudgetValue, getTotalExpenseMonth } from "./db.js";
+import { initDB, addTx, getSaldo, getRekapLengkap, getHistoryByPeriod, getBudgetValue, getTotalExpenseMonth, searchNotes, getAllBudgetStatus } from "./db.js";
 import { appendToSheet } from "./sheets.js";
 
 const app = express();
@@ -29,6 +30,23 @@ async function handleMessage(msg) {
       out += `\n📈 *STATISTIK*\n🟢 Masuk: ${fmt(d.total.income)}\n🔴 Keluar: ${fmt(Math.abs(d.total.expense))}\n${line}\n💰 *NET SISA*: *${fmt(d.total.net)}*`;
       return out;
     }
+    if (p.type === "cek_budget") {
+      const status = getAllBudgetStatus();
+      if (!status.length) return "❌ Belum ada budget yang diset.";
+      let out = `🎯 *STATUS ANGGARAN BULAN INI*\n${line}\n`;
+      status.forEach(s => {
+        const used = s.used || 0;
+        const sisa = s.limit_amt - used;
+        const icon = used > s.limit_amt ? "🚨" : "🟢";
+        out += `${icon} *${s.cat}*\n  Used: \`${fmt(used)}\` / \`${fmt(s.limit_amt)}\`\n  Sisa: \`${fmt(sisa)}\`\n`;
+      });
+      return out;
+    }
+    if (p.type === "search") {
+      const rows = searchNotes(p.query);
+      if (!rows.length) return `🔍 Tidak ditemukan hasil untuk "${p.query}"`;
+      return `🔍 *HASIL PENCARIAN: ${p.query.toUpperCase()}*\n${line}\n` + rows.map(r => `• \`${r.ts.split(' ')[0]}\` | \`${fmt(r.amount)}\` | ${r.note}`).join('\n');
+    }
     if (p.type === "history_period") {
       const rows = getHistoryByPeriod(p.period);
       if (!rows.length) return `📜 Tidak ada data untuk *${p.period}*`;
@@ -38,7 +56,12 @@ async function handleMessage(msg) {
 
   let replies = [];
   for (let p of results) {
-    if (p.type === "tx") {
+    if (p.type === "set_budget") {
+      const db = new Database("./data/myfinance.db");
+      db.prepare(`INSERT OR REPLACE INTO budget (cat, amount) VALUES (?, ?)`).run(p.category, p.amount);
+      db.close();
+      replies.push(`🎯 *BUDGET DISET*\n${line}\nKategori: ${p.category}\nLimit: \`${fmt(p.amount)}\``);
+    } else if (p.type === "tx") {
       addTx(p); await appendToSheet(p);
       const limit = getBudgetValue(p.category);
       const used = getTotalExpenseMonth(p.category);
