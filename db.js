@@ -35,7 +35,7 @@ export function addTx(p) {
   db.close();
 }
 
-export function getSaldo(account, raw=false) {
+export function getSaldo(account, raw = false) {
   const db = open();
   let row;
   if (account === "ALL") {
@@ -43,9 +43,8 @@ export function getSaldo(account, raw=false) {
     db.close();
     return `SALDO TOTAL: ${row.s}`;
   }
-  row = db.prepare(`
-    SELECT COALESCE(SUM(amount),0) s FROM ledger WHERE account=?
-  `).get(account);
+  row = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM ledger WHERE account=?`)
+    .get(account);
   db.close();
   return raw ? row.s : `SALDO ${account.toUpperCase()}: ${row.s}`;
 }
