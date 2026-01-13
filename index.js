@@ -63,6 +63,11 @@ async function handleMessage(msg) {
       addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer", note: `Dari ${p.from}` });
       await appendToSheet(p);
       replies.push(`🔄 *${p.from.toUpperCase()} ➔ ${p.to.toUpperCase()}* : \`${fmt(p.amount)}\``);
+    } else if (p.type === "transfer_user") {
+      addTx({ user: p.fromUser, account: p.account, amount: -p.amount, category: "Transfer User", note: `Kasih ke ${p.toUser}` });
+      addTx({ user: p.toUser, account: p.account, amount: p.amount, category: "Transfer User", note: `Terima dari ${p.fromUser}` });
+      await appendToSheet(p);
+      replies.push(`🎁 *${p.fromUser} ➔ ${p.toUser}* : \`${fmt(p.amount)}\` (${p.account.toUpperCase()})`);
     }
   }
   return replies.join('\n');
