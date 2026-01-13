@@ -1,147 +1,126 @@
-import { addTransaction, setBalance, getBalances } from "./ledger.js"
-import { exportAll } from "./export.js"
-import { createSnapshot } from "./snapshot.js"
-import { getAggregates } from "./aggregate.js"
+const ACCOUNTS = ["cash", "bca", "ovo", "gopay", "shopeepay"];
+const COMMANDS = ["saldo", "rekap", "history", "export"];
 
-// 1. Helper Format Rupiah
-const fmt = (n) => "Rp " + parseInt(n).toLocaleString("id-ID")
+function parseInput({ text = "", sender = "" }) {
+  const original = text;
+  const lower = text.toLowerCase();
 
-// 2. Helper Cerdas Baca Angka (Fix: Support k, rb, jt, dan titik ribuan)
-function parseAmount(text) {
-  let clean = text.toLowerCase().trim()
-  
-  // Jika pakai satuan 'jt' (Juta) -> misal: 1.5jt atau 2jt
-  if (clean.includes("jt")) {
-    // Ubah koma jadi titik (jaga-jaga user ngetik 1,5jt)
-    let num = parseFloat(clean.replace("jt", "").replace(",", "."))
-    return num * 1000000
-  }
-  
-  // Jika pakai satuan 'rb' atau 'k' (Ribu) -> misal: 50rb atau 10k
-  if (clean.includes("rb") || clean.includes("k")) {
-    let num = parseFloat(clean.replace("rb", "").replace("k", "").replace(",", "."))
-    return num * 1000
-  }
-
-  // Jika angka biasa (Format Indo: 100.000) -> Hapus titik ribuan
-  return parseFloat(clean.replace(/\./g, "").replace(",", "."))
-}
-
-export async function handleMessage(chat_id, text) {
-  if (!text) return "❌ Pesan kosong"
-  text = text.toLowerCase().trim()
-
-  // =============================
-  // SET SALDO
-  // =============================
-  // Regex diperbarui untuk menangkap k/rb/jt
-  let m = text.match(/set saldo (m|y)\s+(\w+)\s+([\d.,a-z]+)/)
-  if (m) {
-    const user = m[1].toUpperCase()
-    const acc = m[2].toUpperCase()
-    const amount = parseAmount(m[3])
-    
-    // Validasi kalau hasil parse NaN
-    if (isNaN(amount)) return "❌ *Format angka salah.*"
-
-    setBalance(chat_id, user, acc, amount)
-    
-    return `💾 *SALDO DI-UPDATE*\n──────────────────\n👤 User : **${user}**\n🏦 Akun : **${acc}**\n💰 Total : **${fmt(amount)}**\n──────────────────`
-  }
-
-  // =============================
-  // SALDO
-  // =============================
-  if (text === "saldo") {
-    const b = getBalances(chat_id)
-    if (!b || Object.keys(b).length === 0) return "⚠️ *Belum ada data saldo.*"
-
-    let output = "📊 *STATUS KEUANGAN*\n"
-    let grandTotal = 0
-
-    for (let user in b) {
-      output += `\n👤 **${user.toUpperCase()}**`
-      let subtotal = 0
-      for (let acc in b[user]) {
-        const val = b[user][acc]
-        subtotal += val
-        output += `\n   ├ ${acc}: ${fmt(val)}`
-      }
-      output += `\n   └ *Sub: ${fmt(subtotal)}*\n`
-      grandTotal += subtotal
+  // =====================
+  // 1. HARD GUARD (WAJIB)
+  // =====================
+  const forbidden = ["set saldo", "edit", "hapus"];
+  for (const word of forbidden) {
+    if (lower.includes(word)) {
+      return {
+        type: "error",
+        message: "Perintah tidak diizinkan. Gunakan koreksi transaksi."
+      };
     }
-    output += `\n══════════════════\n💵 **TOTAL ASET: ${fmt(grandTotal)}**`
-    return output
   }
 
-  // =============================
-  // EXPORT
-  // =============================
-  if (text === "export") return exportAll(chat_id)
-
-  // =============================
-  // SNAPSHOT
-  // =============================
-  if (text.startsWith("snapshot")) {
-    const label = text.replace("snapshot", "").trim()
-    const s = createSnapshot(chat_id, label)
-    return `📸 *SNAPSHOT TERSIMPAN*\n🏷️ Label: ${label || "-"}\n⏰ Waktu: ${s.time}`
+  // =====================
+  // 2. COMMAND DETECTION
+  // =====================
+  for (const cmd of COMMANDS) {
+    if (lower.startsWith(cmd)) {
+      return {
+        type: "command",
+        command: cmd,
+        raw: original
+      };
+    }
   }
 
-  // =============================
-  // LAPORAN
-  // =============================
-  if (text === "laporan" || text === "rekap") return getAggregates(chat_id)
+  // =====================
+  // 3. USER RESOLUTION
+  // =====================
+  let user = null;
+  if (/\bm\b/.test(lower)) user = "M";
+  if (/\by\b/.test(lower)) user = "Y";
 
-  // =============================
-  // TRANSFER
-  // =============================
-  // Regex diperbarui: ([\d.,a-z]+) supaya baca huruf k/rb/jt
-  let t = text.match(/(m|y)\s+transfer\s+([\d.,a-z]+)\s+dari\s+(\w+)\s+ke\s+(\w+)/)
-  if (t) {
-    const amt = parseAmount(t[2])
-    addTransaction(chat_id, {
-      user: t[1].toUpperCase(),
-      type: "transfer",
-      amount: amt,
-      from: t[3],
-      to: t[4]
-    })
-    return `🔁 *TRANSFER SUKSES*\n──────────────────\n💸 Nominal: **${fmt(amt)}**\n📤 Dari: **${t[3]}**\n📥 Ke: **${t[4]}**`
+  if (!user) {
+    if (sender.toLowerCase().includes("malvin")) user = "M";
+    else if (sender.toLowerCase().includes("yovita")) user = "Y";
   }
 
-  // =============================
-  // TRANSAKSI
-  // =============================
-  // Regex diperbarui: ([\d.,a-z]+)
-  let tx = text.match(/(m|y)\s+(.+)\s+([\d.,a-z]+)/)
-  if (tx) {
-    const user = tx[1].toUpperCase()
-    const note = tx[2].trim()
-    const amount = parseAmount(tx[3])
-    
-    if (isNaN(amount)) return "❌ *Gagal baca nominal.* Coba: '10k' atau '50000'"
+  if (!user) user = "M"; // default aman
 
-    const isMasuk = (
-      note.includes("gaji") ||
-      note.includes("bonus") ||
-      note.includes("refund") ||
-      note.includes("cashback")
-    )
-    const type = isMasuk ? "masuk" : "keluar"
-
-    addTransaction(chat_id, {
-      user: user,
-      type,
-      amount,
-      note
-    })
-
-    const head = isMasuk ? "🤑 PEMASUKAN" : "💸 PENGELUARAN"
-    const icon = isMasuk ? "📈" : "📉"
-    
-    return `${icon} *${head}*\n──────────────────\n👤 ${user} • ${note}\n💰 **${fmt(amount)}**`
+  // =====================
+  // 4. ACCOUNT RESOLUTION
+  // =====================
+  let account = null;
+  for (const acc of ACCOUNTS) {
+    if (lower.includes(acc)) {
+      account = acc.toUpperCase();
+      break;
+    }
   }
 
-  return "❓ *Perintah tidak dikenali*"
+  if (!account) {
+    return {
+      type: "error",
+      message: "Akun tidak dikenali. Gunakan: Cash, BCA, OVO, GoPay, ShopeePay."
+    };
+  }
+
+  // =====================
+  // 5. AMOUNT RESOLUTION
+  // =====================
+  let amount = null;
+  const rbMatch = lower.match(/(\d+)\s*rb/);
+  const jtMatch = lower.match(/(\d+)\s*jt/);
+  const numMatch = lower.match(/(\d{3,})/);
+
+  if (jtMatch) amount = parseInt(jtMatch[1], 10) * 1_000_000;
+  else if (rbMatch) amount = parseInt(rbMatch[1], 10) * 1_000;
+  else if (numMatch) amount = parseInt(numMatch[1], 10);
+
+  if (!amount) {
+    return {
+      type: "error",
+      message: "Nominal tidak ditemukan."
+    };
+  }
+
+  // =====================
+  // 6. CATEGORY & TYPE
+  // =====================
+  let category = "lainnya";
+  let type = "expense";
+
+  if (lower.includes("gaji") || lower.includes("saldo awal")) {
+    type = "income";
+    category = "income";
+  }
+
+  if (lower.includes("makan")) category = "makan";
+  if (lower.includes("transport")) category = "transport";
+  if (lower.includes("bayi")) category = "bayi";
+
+  if (type === "expense") amount = -Math.abs(amount);
+
+  // =====================
+  // 7. TAG RESOLUTION
+  // =====================
+  const tags = (lower.match(/#\w+/g) || []).join(",");
+
+  // =====================
+  // 8. NOTE CLEANING
+  // =====================
+  const note = original
+    .replace(/#\w+/g, "")
+    .replace(/\bm\b|\by\b/gi, "")
+    .trim();
+
+  return {
+    type: "transaction",
+    user,
+    account,
+    amount,
+    category,
+    note,
+    tags
+  };
 }
+
+module.exports = { parseInput };
