@@ -2,55 +2,42 @@ import { detectCategory } from "./categories.js";
 
 const ACCOUNTS = ["cash", "bca", "ovo", "gopay", "shopeepay"];
 
-function parseAmount(t) {
-  const m = t.match(/([\d.,]+)\s*(k|rb|ribu|jt|juta)?/);
-  if (!m) return null;
-  let n = m[1].replace(/\./g, "").replace(",", ".");
-  let v = parseFloat(n);
-  const u = m[2] || "";
-  if (["k", "rb", "ribu"].includes(u)) v *= 1000;
-  if (["jt", "juta"].includes(u)) v *= 1_000_000;
-  return Math.round(v);
-}
-
-export function parseInput(text, username) {
+export function parseInput(text, senderId) {
   const t = text.toLowerCase();
+  
+  // DATA ID DARI HASIL CEK IDBOT
+  const ID_MALVIN = 5023700044;
+  const ID_YOVITA = 8469259152;
+
   let user = "";
   let cleanText = text;
 
-  // 1. Logika Penentuan User (Prioritas)
+  // 1. LOGIKA IDENTITAS (Prioritas Manual > Otomatis)
   if (t.startsWith("y ")) {
-    // Prioritas 1: Jika ngetik manual "y ..."
     user = "Y";
     cleanText = text.substring(2).trim();
   } else if (t.startsWith("m ")) {
-    // Prioritas 1: Jika ngetik manual "m ..."
     user = "M";
     cleanText = text.substring(2).trim();
   } else {
-    // Prioritas 2: Otomatis berdasarkan Username
-    // GANTI 'MalvinHen' dengan username Telegram Anda yang asli
-    user = (username === "MalvinHen") ? "M" : "Y";
+    // Otomatis: Jika ID pengirim adalah Yovita, maka Y. Selain itu M.
+    user = (senderId === ID_YOVITA) ? "Y" : "M";
   }
 
   const cleanT = cleanText.toLowerCase();
 
-  // 2. Logika Perintah Non-Transaksi
-  if (cleanT.startsWith("saldo")) {
-    return { type: "saldo", account: ACCOUNTS.find(a => cleanT.includes(a)) || "ALL" };
-  }
-  if (cleanT.startsWith("rekap")) {
-    return { type: "rekap", filter: cleanT };
-  }
-  if (cleanT.startsWith("export")) {
-    return { type: "export" };
-  }
+  // 2. LOGIKA PERINTAH NON-TRANSAKSI
+  if (cleanT === "saldo") return { type: "saldo", account: "ALL" };
+  if (cleanT.startsWith("saldo ")) return { type: "saldo", account: ACCOUNTS.find(a => cleanT.includes(a)) || "ALL" };
+  if (cleanT.startsWith("rekap")) return { type: "rekap", filter: cleanT };
+  if (cleanT.startsWith("edit ")) return { type: "edit", newAmount: parseAmount(cleanT), account: ACCOUNTS.find(a => cleanT.includes(a)) };
+  if (cleanT === "history") return { type: "history" };
 
-  // 3. Logika Transaksi
-  const amt = parseAmount(cleanText);
+  // 3. LOGIKA TRANSAKSI
+  const amt = parseAmount(cleanT);
   if (!amt) return { type: "unknown" };
 
-  const { category } = detectCategory(cleanText);
+  const { category } = detectCategory(cleanT);
 
   return {
     type: "tx",
@@ -60,4 +47,15 @@ export function parseInput(text, username) {
     category: category,
     note: cleanText
   };
+}
+
+function parseAmount(t) {
+  const m = t.match(/([\d.,]+)\s*(k|rb|ribu|jt|juta)?/);
+  if (!m) return null;
+  let n = m[1].replace(/\./g, "").replace(",", ".");
+  let v = parseFloat(n);
+  const u = m[2] || "";
+  if (["k", "rb", "ribu"].includes(u)) v *= 1000;
+  if (["jt", "juta"].includes(u)) v *= 1_000_000;
+  return Math.round(v);
 }
