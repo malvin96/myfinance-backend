@@ -1,6 +1,10 @@
+import express from "express";
 import TelegramBot from "node-telegram-bot-api";
 import { getUser, addIncome, addExpense, getTransactions } from "./db.js";
 
+// ======================
+// TELEGRAM BOT
+// ======================
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
 bot.on("message", (msg) => {
@@ -33,4 +37,18 @@ bot.on("message", (msg) => {
     ).join("\n");
     return bot.sendMessage(chatId, out);
   }
+});
+
+// ======================
+// EXPRESS DUMMY SERVER (agar Render Free tidak mematikan bot)
+// ======================
+const app = express();
+
+app.get("/", (req, res) => {
+  res.send("MyFinance Telegram Bot is running");
+});
+
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log("HTTP server running on port", port);
 });
