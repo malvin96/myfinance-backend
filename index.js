@@ -1,17 +1,17 @@
+// index.js
+// MY FINANCE ENTRY POINT — SINGLE SOURCE OF TRUTH
+
 const express = require("express");
 const bodyParser = require("body-parser");
+const fs = require("fs");
+const path = require("path");
 
 const { parseInput } = require("./parser");
-const {
-  insertTransaction,
-  getLedger
-} = require("./ledger");
+const { insertTransaction, getLedger } = require("./ledger");
 const {
   getBalanceByAccount,
   getTotalBalance,
   getRecapByUser,
-  getRecapByAccount,
-  getRecapByCategory,
   getFullRecap
 } = require("./aggregate");
 const { exportCSV } = require("./export");
@@ -19,13 +19,7 @@ const { exportCSV } = require("./export");
 const app = express();
 app.use(bodyParser.json());
 
-/**
- * Normalize incoming payload from:
- * - Botpress
- * - Telegram webhook
- */
 function normalizePayload(req) {
-  // Telegram
   if (req.body && req.body.message) {
     return {
       text: req.body.message.text || "",
@@ -33,7 +27,6 @@ function normalizePayload(req) {
     };
   }
 
-  // Botpress (common pattern)
   if (req.body && req.body.text) {
     return {
       text: req.body.text,
@@ -44,50 +37,35 @@ function normalizePayload(req) {
   return { text: "", sender: "" };
 }
 
-/**
- * Format outputs (LOCKED STYLE)
- */
 function formatText(lines) {
   return lines.join("\n");
 }
 
-/**
- * MAIN WEBHOOK
- */
 app.post("/webhook", (req, res) => {
   try {
     const { text, sender } = normalizePayload(req);
-
-    if (!text) {
-      return res.json({ text: "⚠️ Input kosong." });
-    }
+    if (!text) return res.json({ text: "⚠️ Input kosong." });
 
     const parsed = parseInput({ text, sender });
 
-    // ===== ERROR =====
     if (parsed.type === "error") {
       return res.json({ text: `⚠️ ${parsed.message}` });
     }
 
-    // ===== COMMANDS =====
     if (parsed.type === "command") {
       const cmd = parsed.command;
 
-      // SALDO
       if (cmd === "saldo") {
         const balances = getBalanceByAccount();
         const total = getTotalBalance();
 
         const lines = ["SALDO"];
-        balances.forEach(b => {
-          lines.push(`${b.account}\t${b.balance}`);
-        });
+        balances.forEach(b => lines.push(`${b.account}\t${b.balance}`));
         lines.push(`TOTAL\t${total}`);
 
         return res.json({ text: formatText(lines) });
       }
 
-      // REKAP
       if (cmd === "rekap") {
         const recap = getFullRecap();
         const byUser = getRecapByUser();
@@ -102,37 +80,35 @@ app.post("/webhook", (req, res) => {
         return res.json({ text: formatText(lines) });
       }
 
-      // HISTORY
       if (cmd === "history") {
         const rows = getLedger({ limit: 20 });
-
         const lines = ["HISTORY"];
-        rows.forEach(tx => {
-          lines.push(
-            `${tx.timestamp}\t${tx.account}\t${tx.amount}\t${tx.category}`
-          );
-        });
-
+        rows.forEach(tx =>
+          lines.push(`${tx.timestamp}\t${tx.account}\t${tx.amount}\t${tx.category}`)
+        );
         return res.json({ text: formatText(lines) });
       }
 
-      // EXPORT
       if (cmd === "export") {
         const csv = exportCSV({});
+        const date = new Date().toISOString().slice(0, 10);
+        const filename = `myfinance-export-${date}.csv`;
+        const dir = path.join(__dirname, "export");
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+        const filepath = path.join(dir, filename);
+        fs.writeFileSync(filepath, csv);
+
         return res.json({
-          text: "EXPORT SIAP",
-          file: csv
+          text: `EXPORT SIAP\n${filename}`
         });
       }
     }
 
-    // ===== TRANSACTION =====
     if (parsed.type === "transaction") {
       insertTransaction(parsed);
-
-      const balance = getBalanceByAccount().find(
-        b => b.account === parsed.account
-      )?.balance || 0;
+      const balance =
+        getBalanceByAccount().find(b => b.account === parsed.account)?.balance || 0;
 
       const lines = [
         "✔️ Tercatat",
@@ -144,12 +120,8 @@ app.post("/webhook", (req, res) => {
       return res.json({ text: formatText(lines) });
     }
 
-    // ===== FALLBACK =====
-    return res.json({
-      text: "⚠️ Perintah tidak dikenali."
-    });
+    return res.json({ text: "⚠️ Perintah tidak dikenali." });
   } catch (err) {
-    // FAIL SAFE: DO NOT WRITE ANYTHING HERE
     return res.json({
       text:
         "⚠️ Sistem MY Finance sedang bermasalah. Tidak ada transaksi yang dicatat."
@@ -158,6 +130,4 @@ app.post("/webhook", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`MY Finance running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`MY Finance running on port ${PORT}`));
