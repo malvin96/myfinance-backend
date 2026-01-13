@@ -8,7 +8,7 @@ export async function sendMessage(chatId, text) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId, text: text, parse_mode: "Markdown" }),
     });
-  } catch (error) { console.error("Error:", error); }
+  } catch (error) { console.error("Error Telegram:", error); }
 }
 
 export async function pollUpdates(handleMessage) {
