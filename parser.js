@@ -10,29 +10,24 @@ function parseAmount(t) {
   return Math.round(n);
 }
 
-export function parseInput(text, sender) {
+export function parseInput(text) {
   const t = text.toLowerCase();
 
-  // saldo
   if (t.startsWith("saldo")) {
     const acc = ACCOUNTS.find(a => t.includes(a));
     return { type: "saldo", account: acc || "ALL" };
   }
 
-  // rekap
   if (t.startsWith("rekap")) {
     return { type: "rekap" };
   }
 
-  // transaksi (default)
   const amount = parseAmount(t);
   if (!amount) return { type: "unknown" };
 
   const account = ACCOUNTS.find(a => t.includes(a)) || "cash";
-  const user = t.includes(" y ") || t.startsWith("y ") ? "Y" : "M";
+  const user = t.startsWith("y ") ? "Y" : "M";
   const category = t.includes("makan") ? "Makan" : "Lainnya";
-
-  // expense default negatif
   const signed = t.includes("gaji") ? amount : -amount;
 
   return {
@@ -41,7 +36,6 @@ export function parseInput(text, sender) {
     account,
     amount: signed,
     category,
-    note: text,
-    sender
+    note: text
   };
 }
