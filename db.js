@@ -2,32 +2,22 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 
-const DIR = path.join(process.cwd(), "data");
-const DB = path.join(DIR, "myfinance.db");
-
-export function initDB() {
-  if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
-  const db = new Database(DB);
-  db.exec(`CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY, ts TEXT, user TEXT, account TEXT, amount INTEGER, category TEXT, note TEXT)`);
-  db.exec(`CREATE TABLE IF NOT EXISTS budget(cat TEXT PRIMARY KEY, amount INTEGER)`);
-  db.close();
-}
+const DB = path.join(process.cwd(), "data", "myfinance.db");
+if (!fs.existsSync(path.dirname(DB))) fs.mkdirSync(path.dirname(DB), { recursive: true });
 
 const open = () => new Database(DB);
+
+export function initDB() {
+  const db = open();
+  db.exec(`CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY, ts TEXT, user TEXT, account TEXT, amount REAL, category TEXT, note TEXT)`);
+  db.exec(`CREATE TABLE IF NOT EXISTS budget(cat TEXT PRIMARY KEY, amount REAL)`);
+  db.close();
+}
 
 export function addTx(p) {
   const db = open();
   db.prepare(`INSERT INTO ledger VALUES(null, datetime('now','localtime'), ?, ?, ?, ?, ?)`).run(p.user, p.account, p.amount, p.category, p.note);
   db.close();
-}
-
-export function getSaldo(acc) {
-  const db = open();
-  const res = (acc === "ALL" || !acc)
-    ? db.prepare(`SELECT SUM(amount) as s FROM ledger`).get()
-    : db.prepare(`SELECT SUM(amount) as s FROM ledger WHERE account=?`).get(acc);
-  db.close();
-  return res?.s || 0;
 }
 
 export function getRekapLengkap() {
@@ -39,32 +29,34 @@ export function getRekapLengkap() {
   return { total, perUser, perAccount };
 }
 
-export function getHistoryByPeriod(period) {
+export function getAllLedger() {
   const db = open();
-  let query = `SELECT * FROM ledger WHERE 1=1 `;
-  if (period === "hari ini") query += `AND date(ts) = date('now', 'localtime') `;
-  else if (period === "minggu ini") query += `AND date(ts) >= date('now', 'localtime', '-7 days') `;
-  else if (period === "bulan ini") query += `AND strftime('%m', ts) = strftime('%m', 'now', 'localtime') `;
-  const rows = db.prepare(query + ` ORDER BY ts DESC LIMIT 20`).all();
+  const rows = db.prepare(`SELECT * FROM ledger ORDER BY ts DESC`).all();
   db.close();
   return rows;
+}
+
+export function getHistoryByPeriod(period) {
+  const db = open();
+  let q = `SELECT * FROM ledger WHERE 1=1 `;
+  if (period === "hari ini") q += `AND date(ts) = date('now', 'localtime') `;
+  else if (period === "minggu ini") q += `AND date(ts) >= date('now', 'localtime', '-7 days') `;
+  else if (period === "bulan ini") q += `AND strftime('%m', ts) = strftime('%m', 'now', 'localtime') `;
+  const res = db.prepare(q + ` ORDER BY ts DESC LIMIT 15`).all();
+  db.close();
+  return res;
 }
 
 export function searchNotes(query) {
   const db = open();
-  const rows = db.prepare(`SELECT * FROM ledger WHERE note LIKE ? ORDER BY ts DESC LIMIT 10`).all(`%${query}%`);
+  const res = db.prepare(`SELECT * FROM ledger WHERE note LIKE ? ORDER BY ts DESC LIMIT 10`).all(`%${query}%`);
   db.close();
-  return rows;
+  return res;
 }
 
 export function getAllBudgetStatus() {
   const db = open();
-  const rows = db.prepare(`
-    SELECT b.cat, b.amount as limit_amt, 
-    (SELECT SUM(ABS(amount)) FROM ledger 
-     WHERE category = b.cat AND amount < 0 
-     AND strftime('%m', ts) = strftime('%m', 'now', 'localtime')) as used
-    FROM budget b`).all();
+  const rows = db.prepare(`SELECT b.cat, b.amount as limit_amt, (SELECT SUM(ABS(amount)) FROM ledger WHERE category = b.cat AND amount < 0 AND strftime('%m', ts) = strftime('%m', 'now', 'localtime')) as used FROM budget b`).all();
   db.close();
   return rows;
 }
