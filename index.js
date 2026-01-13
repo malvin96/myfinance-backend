@@ -1,18 +1,26 @@
 import express from "express";
 import { pollUpdates } from "./telegram.js";
 import { parseInput } from "./parser.js";
-import { initDB, addTx, getSaldo, getHistory, getLastTx, addCorrection } from "./db.js";
-import { getRekapRaw, getRekapByFilter } from "./aggregate.js";
-import { setBudget, getBudgetStatus } from "./budget.js";
-import { addReminder } from "./reminder.js";
+import {
+  initDB,
+  addTx,
+  getSaldo,
+  getHistory,
+  getLastTx,
+  addCorrection,
+} from "./db.js";
+import {
+  getRekapRaw,
+  getRekapByFilter,
+} from "./aggregate.js";
 import { exportText } from "./export.js";
 
-// --- DUMMY SERVER UNTUK RENDER ---
+// --- DUMMY SERVER UNTUK RENDER PORT BINDING ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get("/", (req, res) => res.send("Bot Finance Aktif!"));
 app.listen(PORT, () => console.log(`Render port binding aktif di port ${PORT}`));
-// --------------------------------
+// ----------------------------------------------
 
 initDB();
 const fmt = n => `Rp ${Number(n).toLocaleString("id-ID")}`;
@@ -29,19 +37,6 @@ async function handleMessage(msg) {
   if (p.type === "rekap") {
     const r = p.filter ? getRekapByFilter(p.filter) : getRekapRaw();
     return `📊 REKAP\n━━━━━━━━━━━━\nPemasukan  : ${fmt(r.income)}\nPengeluaran: ${fmt(Math.abs(r.expense))}\n━━━━━━━━━━━━\nNET        : ${fmt(r.net)}`;
-  }
-
-  if (p.type === "history") {
-    const rows = getHistory(p.filter);
-    if (!rows.length) return "📭 Tidak ada data";
-    return rows.slice(0, 10).map(r => `${r.ts} | ${r.account.toUpperCase()} | ${fmt(r.amount)} | ${r.note}`).join("\n");
-  }
-
-  if (p.type === "edit") {
-    const last = getLastTx(p.account);
-    if (!last) return "⚠️ Tidak ada transaksi";
-    addCorrection(last, p.newAmount);
-    return "✏️ Transaksi dikoreksi";
   }
 
   if (p.type === "tx") {
