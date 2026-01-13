@@ -11,15 +11,14 @@ initDB();
 const fmt = n => "Rp. " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━";
 
-// AUTO-REMINDER: Cek transaksi CC setiap jam 21:00
+// AUTO-REMINDER CC JAM 21:00
 setInterval(() => {
   const now = new Date();
   if (now.getHours() === 21 && now.getMinutes() === 0) {
     const cc = getTotalCCHariIni();
     if (cc && cc.total < 0) {
-      const totalHutang = Math.abs(cc.total);
-      const msg = `🔔 *REMINDER PELUNASAN CC*\n${line}\nMalvin, total transaksi CC kamu hari ini: *${fmt(totalHutang)}*.\n\nJangan lupa dilunasi malam ini ya agar poin aman! 💳`;
-      sendMessage(5023700044, msg);
+      const msg = `🔔 *REMINDER PELUNASAN CC*\n${line}\nTotal transaksi CC hari ini: *${fmt(Math.abs(cc.total))}*\n\nJangan lupa dilunasi malam ini ya! 💳`;
+      sendMessage(5023700044, msg); 
     }
   }
 }, 60000);
@@ -35,14 +34,10 @@ async function handleMessage(msg) {
       const d = getRekapLengkap();
       const cc = getTotalCCHariIni();
       let out = `📊 *REKAP SALDO*\n${line}\n`;
-      
       d.perAccount.forEach(a => {
-        if (a.account !== 'cc') {
-          out += `💰 ${a.account.toUpperCase().padEnd(8)} : \`${fmt(a.balance)}\`\n`;
-        }
+        if (a.account !== 'cc') out += `💰 ${a.account.toUpperCase().padEnd(8)} : \`${fmt(a.balance)}\`\n`;
       });
-
-      out += `\n💳 *TRANSAKSI CC HARI INI*:\n└ \`${fmt(Math.abs(cc.total || 0))}\` (Belum Lunas)\n`;
+      out += `\n💳 *TRANSAKSI CC HARI INI*:\n└ \`${fmt(Math.abs(cc.total || 0))}\` (Reminder)\n`;
       out += `${line}\n💰 *NET REAL*: *${fmt(d.total.net_real || 0)}*`;
       return out;
   }
@@ -51,14 +46,14 @@ async function handleMessage(msg) {
   for (let p of results) {
     if (p.type === "add_reminder") {
       addReminder(p.note, p.dueDate);
-      replies.push(`🔔 Reminder dicatat: *${p.note}* setiap tanggal ${p.dueDate}`);
+      replies.push(`🔔 Reminder dicatat: *${p.note}* tgl ${p.dueDate}`);
     } else if (p.type === "tx") {
       addTx(p);
       replies.push(`✅ Tersimpan: *${p.category}* (${fmt(Math.abs(p.amount))})`);
     } else if (p.type === "transfer_akun") {
-      addTx({ ...p, account: p.from, amount: -p.amount, category: "Pelunasan CC" });
-      addTx({ ...p, account: p.to, amount: p.amount, category: "Pelunasan CC" });
-      replies.push(`🔄 *LUNAS!* Saldo ${p.from.toUpperCase()} dipindah ke CC sebesar ${fmt(p.amount)}`);
+      addTx({ ...p, account: p.from, amount: -p.amount, category: "Transfer/Lunas" });
+      addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer/Lunas" });
+      replies.push(`🔄 *SUKSES!* Saldo dipindah: ${fmt(p.amount)}`);
     } else if (p.type === "set_saldo") {
       addTx({ ...p, category: "Saldo Awal" });
       replies.push(`💰 Saldo ${p.account.toUpperCase()} diset: \`${fmt(p.amount)}\``);
