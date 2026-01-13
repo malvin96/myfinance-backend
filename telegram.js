@@ -1,6 +1,6 @@
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 if (!TOKEN) {
-  console.error("❌ TELEGRAM_BOT_TOKEN tidak ada");
+  console.error("TELEGRAM_BOT_TOKEN tidak ada");
   process.exit(1);
 }
 
@@ -20,14 +20,13 @@ export async function pollUpdates(onMessage) {
   while (true) {
     try {
       const data = await api("getUpdates", { offset, timeout: 30 });
-
       if (data.result?.length) {
-        for (const upd of data.result) {
-          offset = upd.update_id + 1;
-          if (upd.message?.text) {
-            const reply = await onMessage(upd.message);
+        for (const u of data.result) {
+          offset = u.update_id + 1;
+          if (u.message?.text) {
+            const reply = await onMessage(u.message);
             await api("sendMessage", {
-              chat_id: upd.message.chat.id,
+              chat_id: u.message.chat.id,
               text: reply
             });
           }
@@ -36,7 +35,6 @@ export async function pollUpdates(onMessage) {
     } catch (e) {
       console.error("Polling error:", e.message);
     }
-
     await new Promise(r => setTimeout(r, 1000));
   }
 }
