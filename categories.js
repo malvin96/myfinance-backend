@@ -1,71 +1,47 @@
-const CATEGORIES = [
+export const CATEGORIES = [
   {
     cat: "Makan",
     type: "Kebutuhan",
-    keys: [
-      "makan","ayam","nasi","bakso","mie","kopi",
-      "gofood","grabfood","cafe","jajan"
-    ]
+    keys: ["makan","ayam","nasi","bakso","mie","kopi","gofood","grabfood","cafe","jajan"]
   },
   {
     cat: "Belanja",
     type: "Keinginan",
-    keys: [
-      "shopee","tokopedia","belanja",
-      "indomaret","alfamart","sayur","buah","susu"
-    ]
+    keys: ["shopee","tokopedia","belanja","indomaret","alfamart","sayur","buah","susu"]
   },
   {
     cat: "Transport",
     type: "Kebutuhan",
-    keys: [
-      "grab","gojek","bensin","parkir",
-      "tol","taksi","bus","kereta","pesawat"
-    ]
+    keys: ["grab","gojek","bensin","parkir","tol","taksi","bus","kereta","pesawat"]
   },
   {
     cat: "Tagihan",
     type: "Kebutuhan",
-    keys: [
-      "listrik","air","internet","wifi",
-      "pulsa","cicilan","kartu kredit","asuransi"
-    ]
+    keys: ["listrik","air","internet","wifi","pulsa","cicilan","kartu kredit","asuransi"]
   },
   {
     cat: "Anak",
     type: "Kebutuhan",
-    keys: [
-      "zoey","anak","susu","pampers",
-      "sekolah","les","mainan"
-    ]
+    keys: ["zoey","anak","susu","pampers","sekolah","les","mainan"]
   },
   {
     cat: "Kesehatan",
     type: "Kebutuhan",
-    keys: [
-      "dokter","obat","apotek","rs",
-      "vitamin","klinik"
-    ]
+    keys: ["dokter","obat","apotek","rs","vitamin","klinik"]
   },
   {
     cat: "Hiburan",
     type: "Keinginan",
-    keys: [
-      "netflix","spotify","bioskop",
-      "game","liburan","hotel","villa"
-    ]
+    keys: ["netflix","spotify","bioskop","game","liburan","hotel","villa"]
   },
   {
     cat: "Investasi",
     type: "Netral",
-    keys: [
-      "bibit","mirae","saham",
-      "reksadana","crypto","emas"
-    ]
+    keys: ["bibit","mirae","saham","reksadana","crypto","emas"]
   }
 ];
 
-function detectCategory(text = "") {
+export function detectCategory(text = "") {
   const t = text.toLowerCase();
   for (const c of CATEGORIES) {
     if (c.keys.some(k => t.includes(k))) {
@@ -74,8 +50,3 @@ function detectCategory(text = "") {
   }
   return { category: "Lainnya", needType: "Keinginan" };
 }
-
-module.exports = {
-  CATEGORIES,
-  detectCategory
-};
