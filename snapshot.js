@@ -1,42 +1,20 @@
-// snapshot.js
-// MY FINANCE SNAPSHOT — READ ONLY CACHE
-// ⚠️ NOT A SOURCE OF TRUTH
-// ⚠️ DO NOT USE TO RESTORE OR MODIFY LEDGER
+import { getHistory } from "./db.js";
 
-const db = require("./db");
+export function createSnapshot() {
+  const rows = getHistory();
+  
+  // Hitung saldo per akun secara manual dari history
+  const balances = rows.reduce((acc, curr) => {
+    acc[curr.account] = (acc[curr.account] || 0) + curr.amount;
+    return acc;
+  }, {});
 
-/**
- * Create snapshot for observation / debugging only
- * Snapshot is NOT used by aggregate or ledger
- */
-function createSnapshot() {
-  const rows = db
-    .prepare(
-      `
-      SELECT account, COALESCE(SUM(amount), 0) as balance
-      FROM ledger
-      GROUP BY account
-    `
-    )
-    .all();
-
-  const snapshot = {
+  return {
     timestamp: new Date().toISOString(),
-    balances: rows
+    balances: Object.entries(balances).map(([account, balance]) => ({ account, balance }))
   };
-
-  return snapshot;
 }
 
-/**
- * Get snapshot (computed on demand)
- * No persistence to DB
- */
-function getSnapshot() {
+export function getSnapshot() {
   return createSnapshot();
 }
-
-module.exports = {
-  createSnapshot,
-  getSnapshot
-};
