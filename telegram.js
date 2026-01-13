@@ -1,39 +1,41 @@
-const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const API = `https://api.telegram.org/bot${TOKEN}`;
-let offset = 0;
+import fetch from "node-fetch";
 
-async function api(method, body = {}) {
+const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
+
+export async function sendMessage(chatId, text) {
   try {
-    const res = await fetch(`${API}/${method}`, {
+    await fetch(`${TELEGRAM_API}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: text,
+        parse_mode: "Markdown",
+      }),
     });
-    return await res.json();
-  } catch (err) { console.error(`❌ API ${method} Error:`, err.message); return { ok: false }; }
+  } catch (error) {
+    console.error("Error sending message:", error);
+  }
 }
 
-export async function pollUpdates(onMessage) {
-  // Membersihkan Webhook agar Polling bisa berjalan tanpa Conflict 409
-  await api("deleteWebhook", { drop_pending_updates: true });
-  console.log("📡 Telegram polling started (Anti-Conflict Mode)");
-
+export async function pollUpdates(handleMessage) {
+  let offset = 0;
   while (true) {
     try {
-      const data = await api("getUpdates", { offset, timeout: 30 });
-      if (data.ok && data.result.length > 0) {
-        for (const upd of data.result) {
-          offset = upd.update_id + 1;
-          if (upd.message && upd.message.text) {
-            const reply = await onMessage(upd.message);
-            if (reply) await api("sendMessage", { chat_id: upd.message.chat.id, text: reply, parse_mode: "Markdown" });
+      const response = await fetch(`${TELEGRAM_API}/getUpdates?offset=${offset}&timeout=30`);
+      const data = await response.json();
+      if (data.result && data.result.length > 0) {
+        for (const update of data.result) {
+          if (update.message) {
+            const reply = await handleMessage(update.message);
+            if (reply) await sendMessage(update.message.chat.id, reply);
           }
+          offset = update.update_id + 1;
         }
-      } else if (data.error_code === 409) {
-        console.log("⚠️ Conflict detected, waiting 5s...");
-        await new Promise(r => setTimeout(r, 5000));
       }
-    } catch (err) { console.error("❌ Polling error:", err.message); }
-    await new Promise(r => setTimeout(r, 1000));
+    } catch (error) {
+      console.error("Polling error:", error);
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
   }
 }
