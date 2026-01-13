@@ -1,52 +1,65 @@
-const ACCOUNTS = ["cash", "bca", "ovo", "gopay", "shopeepay"];
+const ACCOUNTS = ["cash","bca","ovo","gopay","shopeepay"];
 
-function parseAmount(text) {
-  const m = text.toLowerCase().match(/([\d.,]+)\s*(k|rb|ribu|jt|juta)?/);
+function parseAmount(t) {
+  const m = t.match(/([\d.,]+)\s*(k|rb|ribu|jt|juta)?/);
   if (!m) return null;
 
-  let num = m[1];
-  if (num.includes(".") && num.includes(",")) {
-    num = num.replace(/\./g, "").replace(",", ".");
-  } else {
-    num = num.replace(",", ".");
-  }
-
-  let val = parseFloat(num);
-  if (isNaN(val)) return null;
+  let n = m[1];
+  if (n.includes(".") && n.includes(",")) n = n.replace(/\./g,"").replace(",",".");
+  else n = n.replace(",",".");
+  let v = parseFloat(n);
+  if (isNaN(v)) return null;
 
   const u = m[2] || "";
-  if (["k", "rb", "ribu"].includes(u)) val *= 1000;
-  if (["jt", "juta"].includes(u)) val *= 1000000;
-
-  return Math.round(val);
+  if (["k","rb","ribu"].includes(u)) v *= 1000;
+  if (["jt","juta"].includes(u)) v *= 1_000_000;
+  return Math.round(v);
 }
 
 export function parseInput(text) {
-  const t = text.toLowerCase().trim();
+  const t = text.toLowerCase();
 
   if (t.startsWith("saldo")) {
-    const acc = ACCOUNTS.find(a => t.includes(a)) || "ALL";
-    return { type: "saldo", account: acc };
+    return { type:"saldo", account: ACCOUNTS.find(a=>t.includes(a)) || "ALL" };
   }
 
   if (t.startsWith("rekap")) {
-    return { type: "rekap" };
+    return { type:"rekap", filter:t };
   }
 
-  const amount = parseAmount(t);
-  if (!amount) return { type: "unknown" };
+  if (t.startsWith("history")) {
+    return { type:"history", filter:t };
+  }
 
-  const account = ACCOUNTS.find(a => t.includes(a)) || "cash";
-  const user = t.startsWith("y ") ? "Y" : "M";
-  const category = t.includes("makan") ? "Makan" : "Lainnya";
-  const signed = t.includes("gaji") ? amount : -amount;
+  if (t.startsWith("edit")) {
+    return { type:"edit", account: ACCOUNTS.find(a=>t.includes(a)), newAmount: parseAmount(t) };
+  }
+
+  if (t.startsWith("set budget")) {
+    return { type:"set_budget", category:"makan", amount: parseAmount(t) };
+  }
+
+  if (t.startsWith("cek budget")) {
+    return { type:"budget_status" };
+  }
+
+  if (t.startsWith("ingatkan")) {
+    return { type:"reminder", raw:t };
+  }
+
+  if (t.startsWith("export")) {
+    return { type:"export" };
+  }
+
+  const amt = parseAmount(t);
+  if (!amt) return { type:"unknown" };
 
   return {
-    type: "tx",
-    user,
-    account,
-    amount: signed,
-    category,
+    type:"tx",
+    user: t.startsWith("y ") ? "Y" : "M",
+    account: ACCOUNTS.find(a=>t.includes(a)) || "cash",
+    amount: t.includes("gaji") ? amt : -amt,
+    category: t.includes("makan") ? "Makan" : "Lainnya",
     note: text
   };
 }
