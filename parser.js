@@ -5,7 +5,6 @@ function parseAmount(text) {
   if (!m) return null;
 
   let num = m[1];
-
   if (num.includes(".") && num.includes(",")) {
     num = num.replace(/\./g, "").replace(",", ".");
   } else {
@@ -16,8 +15,8 @@ function parseAmount(text) {
   if (isNaN(val)) return null;
 
   const u = m[2] || "";
-  if (u === "k" || u === "rb" || u === "ribu") val *= 1000;
-  if (u === "jt" || u === "juta") val *= 1000000;
+  if (["k", "rb", "ribu"].includes(u)) val *= 1000;
+  if (["jt", "juta"].includes(u)) val *= 1000000;
 
   return Math.round(val);
 }
