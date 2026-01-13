@@ -17,7 +17,6 @@ export function parseInput(text) {
   const t = text.toLowerCase();
   if (t.startsWith("saldo")) return { type:"saldo", account: ACCOUNTS.find(a=>t.includes(a)) || "ALL" };
   if (t.startsWith("rekap")) return { type:"rekap", filter:t };
-  if (t.startsWith("export")) return { type:"export" };
   
   const amt = parseAmount(t);
   if (!amt) return { type:"unknown" };
