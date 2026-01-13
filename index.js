@@ -1,33 +1,34 @@
 import express from "express";
 import { pollUpdates } from "./telegram.js";
 import { parseInput } from "./parser.js";
-import {
-  initDB,
-  addTx,
-  getSaldo,
-  getHistory,
-  getLastTx,
-  addCorrection,
-} from "./db.js";
-import {
-  getRekapRaw,
-  getRekapByFilter,
-} from "./aggregate.js";
-import { exportText } from "./export.js";
+import { initDB, addTx, getSaldo, getHistory, getLastTx, addCorrection } from "./db.js";
+import { getRekapRaw, getRekapByFilter } from "./aggregate.js";
 
-// --- DUMMY SERVER UNTUK RENDER PORT BINDING ---
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get("/", (req, res) => res.send("Bot Finance Aktif!"));
-app.listen(PORT, () => console.log(`Render port binding aktif di port ${PORT}`));
-// ----------------------------------------------
+app.get("/", (req, res) => res.send("Bot Finance Running..."));
+app.listen(PORT, () => console.log(`Server aktif di port ${PORT}`));
 
 initDB();
-const fmt = n => `Rp ${Number(n).toLocaleString("id-ID")}`;
 
 async function handleMessage(msg) {
   const text = msg.text.trim();
-  const p = parseInput(text);
+  const username = msg.from.username; // Otomatis ambil username pengirim
+  
+  // KEAMANAN: Masukkan username Anda dan Istri agar orang lain tidak bisa akses
+  const authorizedUsers = ["MalvinHen", "UsernameIstriAnda"]; 
+  if (!authorizedUsers.includes(username)) {
+    return "⚠️ Akses ditolak. Anda tidak terdaftar dalam sistem.";
+  }
+
+  const p = parseInput(text, username);
+  const fmt = n => `Rp ${Number(n).toLocaleString("id-ID")}`;
+
+  if (p.type === "tx") {
+    addTx(p);
+    const saldo = getSaldo(p.account, true);
+    return `✅ BERHASIL (${p.user})\n━━━━━━━━━━━━\n${p.category}: ${fmt(Math.abs(p.amount))}\nKet: ${p.note}\n━━━━━━━━━━━━\nSaldo ${p.account.toUpperCase()}: ${fmt(saldo)}`;
+  }
 
   if (p.type === "saldo") {
     const s = getSaldo(p.account, true);
@@ -35,19 +36,17 @@ async function handleMessage(msg) {
   }
 
   if (p.type === "rekap") {
-    const r = p.filter ? getRekapByFilter(p.filter) : getRekapRaw();
-    return `📊 REKAP\n━━━━━━━━━━━━\nPemasukan  : ${fmt(r.income)}\nPengeluaran: ${fmt(Math.abs(r.expense))}\n━━━━━━━━━━━━\nNET        : ${fmt(r.net)}`;
+    const r = getRekapRaw();
+    return `📊 REKAP\n━━━━━━━━━━━━\nMasuk: ${fmt(r.income)}\nKeluar: ${fmt(Math.abs(r.expense))}\nNet: ${fmt(r.net)}`;
   }
 
-  if (p.type === "tx") {
-    addTx(p);
-    const saldo = getSaldo(p.account, true);
-    return `✅ TRANSAKSI\n━━━━━━━━━━━━\nUser     : ${p.user}\nAkun     : ${p.account.toUpperCase()}\nKategori : ${p.category}\nJumlah   : ${fmt(Math.abs(p.amount))}\n━━━━━━━━━━━━\nSaldo ${p.account.toUpperCase()}\n${fmt(saldo)}`;
+  if (p.type === "export") {
+    // Logika export teks sederhana
+    const history = getHistory();
+    return history.slice(0, 20).map(r => `${r.ts} | ${r.user} | ${fmt(r.amount)} | ${r.note}`).join("\n");
   }
 
-  if (p.type === "export") return exportText();
-  return "⚠️ Perintah tidak dikenali";
+  return "⚠️ Perintah tidak dikenali.";
 }
 
 pollUpdates(handleMessage);
-console.log("MY FINANCE BOT v2 RUNNING");
