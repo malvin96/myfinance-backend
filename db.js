@@ -9,6 +9,7 @@ export function initDB() {
   if (!fs.existsSync(DIR)) fs.mkdirSync(DIR,{recursive:true});
   const db = new Database(DB);
   db.exec(`CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY, ts TEXT, user TEXT, account TEXT, amount INTEGER, category TEXT, note TEXT)`);
+  db.exec(`CREATE TABLE IF NOT EXISTS budget(cat TEXT PRIMARY KEY, amount INTEGER)`);
   db.close();
 }
 
@@ -16,11 +17,12 @@ const open = () => new Database(DB);
 
 export function addTx(p) {
   const db = open();
-  db.prepare(`INSERT INTO ledger VALUES(null,datetime('now','localtime'),?,?,?,?,?)`).run(p.user,p.account,p.amount,p.category,p.note);
+  db.prepare(`INSERT INTO ledger VALUES(null,datetime('now','localtime'),?,?,?,?,?)`)
+    .run(p.user, p.account, p.amount, p.category, p.note);
   db.close();
 }
 
-export function getSaldo(acc, raw=false) {
+export function getSaldo(acc) {
   const db = open();
   const res = (acc === "ALL" || !acc)
     ? db.prepare(`SELECT SUM(amount) as s FROM ledger`).get()
@@ -31,25 +33,28 @@ export function getSaldo(acc, raw=false) {
 
 export function getHistory() {
   const db = open();
-  const rows = db.prepare(`SELECT * FROM ledger ORDER BY ts DESC`).all();
+  const rows = db.prepare(`SELECT * FROM ledger ORDER BY ts DESC LIMIT 10`).all();
   db.close();
   return rows;
 }
 
-export function getLastTx(acc) {
+export function setInitialSaldo(p) {
   const db = open();
-  const r = acc 
-    ? db.prepare(`SELECT * FROM ledger WHERE account=? ORDER BY ts DESC LIMIT 1`).get(acc)
-    : db.prepare(`SELECT * FROM ledger ORDER BY ts DESC LIMIT 1`).get();
+  db.prepare(`INSERT INTO ledger VALUES(null,datetime('now','localtime'),?,?,?,'Saldo Awal',?)`)
+    .run(p.user, p.account, p.amount, p.note);
   db.close();
-  return r;
 }
 
-export function addCorrection(last, newAmt) {
-  const diff = newAmt - Math.abs(last.amount);
-  addTx({
-    user: last.user, account: last.account,
-    amount: last.amount < 0 ? -diff : diff,
-    category: "Koreksi", note: "Koreksi Transaksi"
-  });
+export function getBudgetValue(cat) {
+  const db = open();
+  const row = db.prepare(`SELECT amount FROM budget WHERE cat = ?`).get(cat);
+  db.close();
+  return row ? row.amount : null;
+}
+
+export function getTotalExpenseMonth(cat) {
+  const db = open();
+  const row = db.prepare(`SELECT SUM(ABS(amount)) as total FROM ledger WHERE category = ? AND amount < 0 AND strftime('%m', ts) = strftime('%m', 'now')`).get(cat);
+  db.close();
+  return row ? row.total : 0;
 }
