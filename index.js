@@ -1,8 +1,7 @@
 import express from "express";
-import { pollUpdates } from "./telegram.js";
+import { pollUpdates, sendMessage } from "./telegram.js";
 import { parseInput } from "./parser.js";
-import { initDB, addTx, getRekapLengkap, getHistoryLengkap, getBudgetValue, getTotalExpenseMonth, searchNotes, getAllBudgetStatus, addBudget } from "./db.js";
-import { appendToSheet } from "./sheets.js";
+import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, addReminder, getReminders } from "./db.js";
 
 const app = express();
 app.get("/", (req, res) => res.send("Bot Aktif"));
@@ -12,6 +11,19 @@ initDB();
 const fmt = n => "Rp. " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━";
 
+// AUTO-REMINDER: Cek transaksi CC setiap jam 21:00
+setInterval(() => {
+  const now = new Date();
+  if (now.getHours() === 21 && now.getMinutes() === 0) {
+    const cc = getTotalCCHariIni();
+    if (cc && cc.total < 0) {
+      const totalHutang = Math.abs(cc.total);
+      const msg = `🔔 *REMINDER PELUNASAN CC*\n${line}\nMalvin, total transaksi CC kamu hari ini: *${fmt(totalHutang)}*.\n\nJangan lupa dilunasi malam ini ya agar poin aman! 💳`;
+      sendMessage(5023700044, msg);
+    }
+  }
+}, 60000);
+
 async function handleMessage(msg) {
   const senderId = msg.from.id;
   if (![5023700044, 8469259152].includes(senderId)) return;
@@ -19,73 +31,37 @@ async function handleMessage(msg) {
   const results = parseInput(msg.text, senderId);
   if (!results.length) return;
 
-  if (results.length === 1) {
-    const p = results[0];
-    
-    if (p.type === "rekap") {
+  if (results.length === 1 && (results[0].type === "rekap")) {
       const d = getRekapLengkap();
-      let out = `📊 *REKAPITULASI KEUANGAN*\n${line}\n\n👤 *PER USER*\n`;
-      d.perUser.forEach(u => out += `• ${u.user === 'M' ? 'Malvin' : 'Yovita'} : \`${fmt(u.balance)}\`\n`);
-      out += `\n🏦 *SALDO AKUN*\n`;
-      d.perAccount.forEach(a => out += `• ${a.account.toUpperCase().padEnd(8)} : \`${fmt(a.balance)}\`\n`);
-      out += `\n📈 *STATISTIK BULAN INI*\n🟢 Masuk: ${fmt(d.total.income || 0)}\n🔴 Keluar: ${fmt(Math.abs(d.total.expense || 0))}\n${line}\n💰 *NET SISA*: *${fmt(d.total.net || 0)}*`;
-      return out;
-    }
-
-    if (p.type === "history_period") {
-      const rows = getHistoryLengkap(p.period);
-      if (!rows.length) return `📭 Tidak ada transaksi untuk ${p.period}.`;
-      let out = `📜 *HISTORY ${p.period.toUpperCase()}*\n${line}\n`;
-      const summary = rows.reduce((acc, curr) => { acc[curr.user] = (acc[curr.user] || 0) + curr.amount; return acc; }, {});
-      out += `👤 *Ringkasan:* \n`;
-      for (const [u, total] of Object.entries(summary)) { out += `• ${u === 'M' ? 'Malvin' : 'Yovita'}: *${fmt(total)}*\n`; }
-      out += `\n📝 *Detail Transaksi:*\n`;
-      rows.forEach(r => {
-        const icon = r.amount > 0 ? "🟢" : "🔴";
-        const time = r.timestamp ? r.timestamp.split(' ')[1].substring(0, 5) : "--:--";
-        out += `${icon} \`${time}\` **${r.user}** | ${r.account.toUpperCase()}\n   └ \`${fmt(r.amount)}\` - ${r.note}\n`;
+      const cc = getTotalCCHariIni();
+      let out = `📊 *REKAP SALDO*\n${line}\n`;
+      
+      d.perAccount.forEach(a => {
+        if (a.account !== 'cc') {
+          out += `💰 ${a.account.toUpperCase().padEnd(8)} : \`${fmt(a.balance)}\`\n`;
+        }
       });
-      return out;
-    }
 
-    if (p.type === "cek_budget") {
-      const status = getAllBudgetStatus();
-      if (!status.length) return "❌ Budget belum diatur.";
-      let out = `🎯 *STATUS ANGGARAN*\n${line}\n`;
-      status.forEach(s => out += `${(s.used || 0) > s.limit_amt ? "🚨" : "🟢"} *${s.cat.toUpperCase()}*\n  Used: \`${fmt(s.used || 0)}\` / \`${fmt(s.limit_amt)}\`\n`);
+      out += `\n💳 *TRANSAKSI CC HARI INI*:\n└ \`${fmt(Math.abs(cc.total || 0))}\` (Belum Lunas)\n`;
+      out += `${line}\n💰 *NET REAL*: *${fmt(d.total.net_real || 0)}*`;
       return out;
-    }
-
-    if (p.type === "search") {
-      const rows = searchNotes(p.query);
-      return rows.length ? `🔍 *HASIL: ${p.query.toUpperCase()}*\n` + rows.map(r => `• \`${fmt(r.amount)}\` | ${r.note}`).join('\n') : "❌ Tidak ditemukan.";
-    }
   }
 
   let replies = [];
   for (let p of results) {
-    if (p.type === "set_budget") {
-      addBudget(p.category, p.amount);
-      replies.push(`🎯 Budget *${p.category.toUpperCase()}* diset ke \`${fmt(p.amount)}\``);
+    if (p.type === "add_reminder") {
+      addReminder(p.note, p.dueDate);
+      replies.push(`🔔 Reminder dicatat: *${p.note}* setiap tanggal ${p.dueDate}`);
     } else if (p.type === "tx") {
-      addTx(p); await appendToSheet(p);
-      const limit = getBudgetValue(p.category);
-      const used = getTotalExpenseMonth(p.category);
-      const warn = (limit && used > limit) ? `\n🚨 *OVER BUDGET!*` : '';
-      replies.push(`✅ *${p.category}* : \`${fmt(Math.abs(p.amount))}\` (${p.user})${warn}`);
-    } else if (p.type === "set_saldo") {
-      addTx({ ...p, category: "Saldo Awal" }); await appendToSheet(p);
-      replies.push(`💰 *Saldo ${p.account.toUpperCase()}* diset ke \`${fmt(p.amount)}\``);
+      addTx(p);
+      replies.push(`✅ Tersimpan: *${p.category}* (${fmt(Math.abs(p.amount))})`);
     } else if (p.type === "transfer_akun") {
-      addTx({ ...p, account: p.from, amount: -p.amount, category: "Transfer", note: `Ke ${p.to}` });
-      addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer", note: `Dari ${p.from}` });
-      await appendToSheet(p);
-      replies.push(`🔄 *${p.from.toUpperCase()} ➔ ${p.to.toUpperCase()}* : \`${fmt(p.amount)}\``);
-    } else if (p.type === "transfer_user") {
-      addTx({ user: p.fromUser, account: p.account, amount: -p.amount, category: "Transfer User", note: `Kasih ke ${p.toUser}` });
-      addTx({ user: p.toUser, account: p.account, amount: p.amount, category: "Transfer User", note: `Terima dari ${p.fromUser}` });
-      await appendToSheet(p);
-      replies.push(`🎁 *${p.fromUser} ➔ ${p.toUser}* : \`${fmt(p.amount)}\` (${p.account.toUpperCase()})`);
+      addTx({ ...p, account: p.from, amount: -p.amount, category: "Pelunasan CC" });
+      addTx({ ...p, account: p.to, amount: p.amount, category: "Pelunasan CC" });
+      replies.push(`🔄 *LUNAS!* Saldo ${p.from.toUpperCase()} dipindah ke CC sebesar ${fmt(p.amount)}`);
+    } else if (p.type === "set_saldo") {
+      addTx({ ...p, category: "Saldo Awal" });
+      replies.push(`💰 Saldo ${p.account.toUpperCase()} diset: \`${fmt(p.amount)}\``);
     }
   }
   return replies.join('\n');
