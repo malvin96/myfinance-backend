@@ -1,26 +1,42 @@
-import { loadDB, saveDB } from "./db.js"
-import { getBalances } from "./ledger.js"
- 
-export function createSnapshot(chat_id, label = "") {
-  const db = loadDB()
- 
-  if (!db.snapshots) db.snapshots = {}
- 
-  if (!db.snapshots[chat_id]) db.snapshots[chat_id] = []
- 
-  const snap = {
-    time: new Date().toISOString(),
-    label,
-    balances: getBalances(chat_id)
-  }
- 
-  db.snapshots[chat_id].push(snap)
-  saveDB(db)
- 
-  return snap
+// snapshot.js
+// MY FINANCE SNAPSHOT — READ ONLY CACHE
+// ⚠️ NOT A SOURCE OF TRUTH
+// ⚠️ DO NOT USE TO RESTORE OR MODIFY LEDGER
+
+const db = require("./db");
+
+/**
+ * Create snapshot for observation / debugging only
+ * Snapshot is NOT used by aggregate or ledger
+ */
+function createSnapshot() {
+  const rows = db
+    .prepare(
+      `
+      SELECT account, COALESCE(SUM(amount), 0) as balance
+      FROM ledger
+      GROUP BY account
+    `
+    )
+    .all();
+
+  const snapshot = {
+    timestamp: new Date().toISOString(),
+    balances: rows
+  };
+
+  return snapshot;
 }
- 
-export function getSnapshots(chat_id) {
-  const db = loadDB()
-  return db.snapshots?.[chat_id] || []
+
+/**
+ * Get snapshot (computed on demand)
+ * No persistence to DB
+ */
+function getSnapshot() {
+  return createSnapshot();
 }
+
+module.exports = {
+  createSnapshot,
+  getSnapshot
+};
