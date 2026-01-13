@@ -1,40 +1,54 @@
-import { getBalances, getAllTransactions } from "./ledger.js"
- 
-export function exportAll(chat_id) {
-  const balances = getBalances(chat_id)
-  const transactions = getAllTransactions(chat_id)
- 
-  const now = new Date().toISOString()
- 
-  // summary
-  let inM = 0, inY = 0, outM = 0, outY = 0
- 
-  for (const t of transactions) {
-    if (t.type === "masuk") {
-      if (t.user === "M") inM += t.amount
-      else inY += t.amount
-    }
-    if (t.type === "keluar") {
-      if (t.user === "M") outM += t.amount
-      else outY += t.amount
-    }
+const db = require("./db");
+const { getFullRecap, getRecapByUser } = require("./aggregate");
+
+/**
+ * Export transactions + recap as CSV string
+ */
+function exportCSV({ start, end } = {}) {
+  // ===== RECAP =====
+  const recap = getFullRecap({ start, end });
+  const recapByUser = getRecapByUser({ start, end });
+
+  let csv = "";
+  csv += "MY FINANCE EXPORT\n";
+  if (start || end) {
+    csv += `PERIODE,${start || "-"},${end || "-"}\n`;
   }
- 
-  return JSON.stringify({
-    meta: {
-      generated: now,
-      version: "MY_FINANCE_LEDGER_v1"
-    },
-    balances,
-    summary: {
-      M: { in: inM, out: outM, net: inM - outM },
-      Y: { in: inY, out: outY, net: inY - outY },
-      family: {
-        in: inM + inY,
-        out: outM + outY,
-        net: inM + inY - outM - outY
-      }
-    },
-    transactions
-  }, null, 2)
+  csv += "\nREKAP\n";
+  csv += `INCOME,${recap.income || 0}\n`;
+  csv += `EXPENSE,${recap.expense || 0}\n`;
+  csv += `NET,${recap.net || 0}\n\n`;
+
+  csv += "REKAP PER USER\n";
+  recapByUser.forEach(r => {
+    csv += `${r.user},${r.total}\n`;
+  });
+
+  csv += "\nTRANSACTIONS\n";
+  csv += "Tanggal,User,Akun,Amount,Kategori,Note,Tags\n";
+
+  // ===== TRANSACTIONS =====
+  let sql = "SELECT * FROM ledger WHERE 1=1 ";
+  const params = [];
+
+  if (start) {
+    sql += "AND timestamp >= ? ";
+    params.push(start);
+  }
+  if (end) {
+    sql += "AND timestamp <= ? ";
+    params.push(end);
+  }
+
+  sql += "ORDER BY timestamp ASC, id ASC";
+
+  const rows = db.prepare(sql).all(...params);
+
+  rows.forEach(tx => {
+    csv += `${tx.timestamp},${tx.user},${tx.account},${tx.amount},${tx.category},"${tx.note || ""}","${tx.tags || ""}"\n`;
+  });
+
+  return csv;
 }
+
+module.exports = { exportCSV };
