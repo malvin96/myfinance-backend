@@ -2,65 +2,68 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const DB_PATH = path.join(DATA_DIR, "myfinance.db");
+const DIR = path.join(process.cwd(),"data");
+const DB = path.join(DIR,"myfinance.db");
 
 export function initDB() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  const db = new Database(DB_PATH);
+  if (!fs.existsSync(DIR)) fs.mkdirSync(DIR,{recursive:true});
+  const db = new Database(DB);
   db.exec(`
-    CREATE TABLE IF NOT EXISTS ledger (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ts TEXT NOT NULL,
-      user TEXT NOT NULL,
-      account TEXT NOT NULL,
-      amount INTEGER NOT NULL,
-      category TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS ledger(
+      id INTEGER PRIMARY KEY,
+      ts TEXT,
+      user TEXT,
+      account TEXT,
+      amount INTEGER,
+      category TEXT,
       note TEXT
     )
   `);
   db.close();
 }
 
-function open() {
-  return new Database(DB_PATH);
-}
+const open = () => new Database(DB);
 
 export function addTx(p) {
   const db = open();
-  db.prepare(`
-    INSERT INTO ledger (ts, user, account, amount, category, note)
-    VALUES (datetime('now'), ?, ?, ?, ?, ?)
-  `).run(p.user, p.account, p.amount, p.category, p.note || "");
+  db.prepare(`INSERT INTO ledger VALUES(null,datetime('now'),?,?,?,?,?)`)
+    .run(p.user,p.account,p.amount,p.category,p.note);
   db.close();
 }
 
-export function getSaldo(account, raw = false) {
-  const db = open();
-  let row;
-  if (account === "ALL") {
-    row = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM ledger`).get();
-    db.close();
-    return `SALDO TOTAL: ${row.s}`;
-  }
-  row = db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM ledger WHERE account=?`)
-    .get(account);
+export function getSaldo(acc, raw=false) {
+  const db=open();
+  const q = acc==="ALL"
+    ? `SELECT SUM(amount) s FROM ledger`
+    : `SELECT SUM(amount) s FROM ledger WHERE account=?`;
+  const r = acc==="ALL" ? db.prepare(q).get() : db.prepare(q).get(acc);
   db.close();
-  return raw ? row.s : `SALDO ${account.toUpperCase()}: ${row.s}`;
+  return raw ? (r.s||0) : r.s;
 }
 
-export function getRekap() {
-  const db = open();
-  const r = db.prepare(`
-    SELECT
-      SUM(CASE WHEN amount>0 THEN amount ELSE 0 END) income,
-      SUM(CASE WHEN amount<0 THEN amount ELSE 0 END) expense,
-      COALESCE(SUM(amount),0) net
-    FROM ledger
-  `).get();
+export function getHistory(filter) {
+  const db=open();
+  const rows = db.prepare(`SELECT * FROM ledger ORDER BY ts DESC`).all();
   db.close();
-  return `REKAP
-INCOME: ${r.income || 0}
-EXPENSE: ${r.expense || 0}
-NET: ${r.net || 0}`;
+  return rows;
+}
+
+export function getLastTx(acc) {
+  const db=open();
+  const r = acc
+    ? db.prepare(`SELECT * FROM ledger WHERE account=? ORDER BY ts DESC LIMIT 1`).get(acc)
+    : db.prepare(`SELECT * FROM ledger ORDER BY ts DESC LIMIT 1`).get();
+  db.close();
+  return r;
+}
+
+export function addCorrection(last,newAmt) {
+  const diff = newAmt - Math.abs(last.amount);
+  addTx({
+    user:last.user,
+    account:last.account,
+    amount:last.amount<0 ? -diff : diff,
+    category:"Koreksi",
+    note:"Koreksi transaksi"
+  });
 }
