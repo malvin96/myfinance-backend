@@ -1,26 +1,25 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const fetch = require("node-fetch");
+import express from "express";
+import bodyParser from "body-parser";
 
-const { parseInput } = require("./parser");
-const { insertTransaction, getLedger } = require("./ledger");
-const {
+import { parseInput } from "./parser.js";
+import { insertTransaction, getLedger } from "./ledger.js";
+import {
   getBalanceByAccount,
   getTotalBalance,
   getRecapByUser,
   getFullRecap
-} = require("./aggregate");
-const { exportCSV } = require("./export");
+} from "./aggregate.js";
+import { exportCSV } from "./export.js";
 
 const app = express();
 app.use(express.json());
 app.use(bodyParser.json());
 
-// === CONFIG ===
+// === ENV ===
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
-// === SEND MESSAGE TO TELEGRAM ===
+// === SEND MESSAGE (GLOBAL FETCH — NO DEPENDENCY) ===
 async function sendTelegramMessage(chatId, text) {
   await fetch(`${TELEGRAM_API}/sendMessage`, {
     method: "POST",
@@ -34,9 +33,9 @@ async function sendTelegramMessage(chatId, text) {
 
 // === WEBHOOK ===
 app.post("/webhook", async (req, res) => {
-  res.sendStatus(200); // Telegram HARUS cepat dibalas
+  res.sendStatus(200);
 
-  const msg = req.body.message;
+  const msg = req.body?.message;
   if (!msg || !msg.text) return;
 
   const chatId = msg.chat.id;
@@ -45,12 +44,10 @@ app.post("/webhook", async (req, res) => {
 
   const parsed = parseInput({ text, sender });
 
-  // ERROR
   if (parsed.type === "error") {
     return sendTelegramMessage(chatId, `⚠️ ${parsed.message}`);
   }
 
-  // COMMAND
   if (parsed.type === "command") {
     if (parsed.command === "saldo") {
       const balances = getBalanceByAccount();
@@ -77,7 +74,6 @@ app.post("/webhook", async (req, res) => {
     }
   }
 
-  // TRANSACTION
   if (parsed.type === "transaction") {
     insertTransaction(parsed);
 
@@ -96,6 +92,7 @@ Saldo ${parsed.account}: ${balance}`;
   sendTelegramMessage(chatId, "⚠️ Perintah tidak dikenali.");
 });
 
+// === START ===
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("MY FINANCE TELEGRAM BOT RUNNING");
