@@ -4,32 +4,19 @@ const ACCOUNTS = ["cash", "bca", "ovo", "gopay", "shopeepay", "bibit", "emas"];
 const ID_MALVIN = 5023700044;
 const ID_YOVITA = 8469259152;
 
-/**
- * Logika cerdas untuk format angka Indonesia
- * Menangani 20.063.613 (Ribuan) dan 15.135.839,29 (Desimal)
- */
 function cleanNumeric(t) {
   if (!t) return 0;
   let str = t.replace(/\s/g, ''); 
-
-  // 1. Jika ada koma, anggap koma sebagai desimal (Standard ID)
   if (str.includes(',')) {
     return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
   }
-
-  // 2. Jika ada lebih dari satu titik, itu pasti titik ribuan (Contoh: 20.063.613)
   const dotCount = (str.match(/\./g) || []).length;
-  if (dotCount > 1) {
-    return parseFloat(str.replace(/\./g, '')) || 0;
-  } 
-  
-  // 3. Jika hanya satu titik, cek apakah itu ribuan atau desimal (Contoh: 15.000 vs 15.5)
+  if (dotCount > 1) return parseFloat(str.replace(/\./g, '')) || 0;
   if (dotCount === 1) {
     const parts = str.split('.');
     if (parts[1].length === 3) return parseFloat(str.replace(/\./g, '')) || 0;
     return parseFloat(str) || 0;
   }
-
   return parseFloat(str) || 0;
 }
 
@@ -53,26 +40,23 @@ function parseLine(text, senderId) {
   let user = (senderId === ID_YOVITA) ? "Y" : "M";
   let cleanText = text;
 
-  // Cek inisial user (Y/M) di awal baris
   if (tLower.startsWith("y ")) { user = "Y"; cleanText = text.substring(2).trim(); }
   else if (tLower.startsWith("m ")) { user = "M"; cleanText = text.substring(2).trim(); }
 
   const cmd = cleanText.toLowerCase();
 
-  // Perintah Sistem
-  if (cmd.startsWith("set budget ")) return { type: "set_budget", category: cmd.split(" ")[2], amount: extractAmount(cmd) };
+  // PERINTAH SISTEM (PASTIKAN TYPE SESUAI DENGAN INDEX.JS)
+  if (cmd === "rekap") return { type: "rekap" };
   if (cmd === "cek budget") return { type: "cek_budget" };
+  if (cmd.startsWith("set budget ")) return { type: "set_budget", category: cmd.split(" ")[2], amount: extractAmount(cmd) };
   if (cmd.startsWith("cari ")) return { type: "search", query: cmd.replace("cari ", "").trim() };
   if (cmd.startsWith("history ")) return { type: "history_period", period: cmd.replace("history ", "").trim() };
-  if (cmd === "rekap") return { type: "rekap" };
 
-  // Set Saldo (Case Insensitive Account)
   if (cmd.startsWith("set saldo ")) {
     const acc = ACCOUNTS.find(a => cmd.includes(a)) || "cash";
     return { type: "set_saldo", user, account: acc, amount: extractAmount(cmd), note: "Set Saldo" };
   }
 
-  // Pindah Saldo (Case Insensitive Account)
   if (cmd.startsWith("pindah ")) {
     const amount = extractAmount(cmd);
     const from = ACCOUNTS.find(a => cmd.includes(a)) || "bca";
@@ -80,7 +64,6 @@ function parseLine(text, senderId) {
     return { type: "transfer_akun", user, from, to, amount };
   }
 
-  // Fitur Kasih (Transfer User)
   if (cmd.startsWith("kasih ")) {
     const target = (cmd.includes(" y ") || cmd.endsWith(" y")) ? "Y" : "M";
     const acc = ACCOUNTS.find(a => cmd.includes(a)) || "cash";
