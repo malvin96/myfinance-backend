@@ -1,118 +1,75 @@
 import express from "express";
-import fetch from "node-fetch";
-import path from "path";
-import fs from "fs";
-import { fileURLToPath } from "url";
-
-import { initDB, insertTransaction, getBalance, getRecap } from "./db.js";
 import { parseInput } from "./parser.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { initDB, addTx, getSaldo, getRekap } from "./db.js";
 
 const app = express();
 app.use(express.json());
 
-/* =========================
-   ENV & TELEGRAM CONFIG
-========================= */
-const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-if (!TELEGRAM_TOKEN) {
-  console.error("❌ TELEGRAM_BOT_TOKEN tidak ditemukan");
+// ====== ENV ======
+const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+if (!TOKEN) {
+  console.error("❌ TELEGRAM_BOT_TOKEN belum ada di ENV");
   process.exit(1);
 }
+const TG = `https://api.telegram.org/bot${TOKEN}`;
 
-const TG_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
-
-/* =========================
-   INIT DATABASE
-========================= */
+// ====== INIT DB ======
 initDB();
 
-/* =========================
-   HELPER: SEND MESSAGE
-========================= */
+// ====== SEND MESSAGE (Telegram wajib explicit) ======
 async function sendMessage(chatId, text) {
-  await fetch(`${TG_API}/sendMessage`, {
+  const r = await fetch(`${TG}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-      parse_mode: "HTML"
-    })
+    body: JSON.stringify({ chat_id: chatId, text })
   });
+  if (!r.ok) {
+    const t = await r.text();
+    console.error("❌ sendMessage gagal:", t);
+  }
 }
 
-/* =========================
-   TELEGRAM WEBHOOK (WAJIB)
-========================= */
+// ====== WEBHOOK ======
 app.post("/webhook", async (req, res) => {
-  try {
-    const update = req.body;
+  res.sendStatus(200); // cepat balas ke Telegram
 
-    if (!update.message || !update.message.text) {
-      return res.sendStatus(200);
-    }
+  const msg = req.body?.message;
+  if (!msg?.text) return;
 
-    const chatId = update.message.chat.id;
-    const from = update.message.from;
-    const text = update.message.text.trim();
+  const chatId = msg.chat.id;
+  const text = msg.text.trim();
+  const sender = msg.from?.username || "";
 
-    console.log("INCOMING:", text);
+  console.log("INCOMING:", text);
 
-    const result = parseInput(text, from);
+  const p = parseInput(text, sender);
 
-    // === SALDO ===
-    if (result.type === "saldo") {
-      const saldo = getBalance(result);
-      await sendMessage(chatId, saldo);
-      return res.sendStatus(200);
-    }
-
-    // === REKAP ===
-    if (result.type === "rekap") {
-      const recap = getRecap(result);
-      await sendMessage(chatId, recap);
-      return res.sendStatus(200);
-    }
-
-    // === TRANSAKSI ===
-    if (result.type === "transaksi") {
-      insertTransaction(result);
-      const saldo = getBalance({ account: result.account });
-      const out =
-`OK
-User: ${result.user}
-Akun: ${result.account}
-Jumlah: ${result.amount}
-Kategori: ${result.category}
-Saldo ${result.account}: ${saldo}`;
-      await sendMessage(chatId, out);
-      return res.sendStatus(200);
-    }
-
-    // === DEFAULT ===
-    await sendMessage(chatId, "⚠️ Perintah tidak dikenali.");
-    res.sendStatus(200);
-
-  } catch (err) {
-    console.error("WEBHOOK ERROR:", err);
-    res.sendStatus(200);
+  if (p.type === "saldo") {
+    const out = getSaldo(p.account);
+    return sendMessage(chatId, out);
   }
+
+  if (p.type === "rekap") {
+    const out = getRekap();
+    return sendMessage(chatId, out);
+  }
+
+  if (p.type === "tx") {
+    addTx(p);
+    const out = `✔️ Tercatat
+${p.user} | ${p.account}
+${p.amount}
+${p.category}
+Saldo ${p.account}: ${getSaldo(p.account, true)}`;
+    return sendMessage(chatId, out);
+  }
+
+  return sendMessage(chatId, "⚠️ Perintah tidak dikenali.");
 });
 
-/* =========================
-   HEALTH CHECK
-========================= */
-app.get("/", (req, res) => {
-  res.send("MY FINANCE BACKEND RUNNING");
-});
+// ====== HEALTH ======
+app.get("/", (_, res) => res.send("MY FINANCE LIVE"));
 
-/* =========================
-   START SERVER
-========================= */
+// ====== START ======
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("MY FINANCE TELEGRAM BOT RUNNING");
-});
+app.listen(PORT, () => console.log("MY FINANCE TELEGRAM BOT RUNNING"));
