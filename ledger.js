@@ -1,65 +1,96 @@
-import { loadDB, saveDB } from "./db.js"
- 
-function ensureChat(db, chat_id){
-  if(!db[chat_id]){
-    db[chat_id] = {
-      balances: { M:{}, Y:{} },
-      transactions: []
-    }
+const db = require("./db");
+
+/**
+ * Insert new transaction (ONLY WAY to change ledger)
+ */
+function insertTransaction({
+  timestamp = new Date().toISOString(),
+  user,
+  account,
+  amount,
+  category,
+  note = "",
+  tags = "",
+  reference_tx_id = null
+}) {
+  if (!user || !account || !amount || !category) {
+    throw new Error("INVALID_TRANSACTION_DATA");
   }
-  return db[chat_id]
-}
- 
-// =============================
-// SALDO
-// =============================
-export function setBalance(chat_id, user, account, amount){
-  const db = loadDB()
-  const c = ensureChat(db, chat_id)
-  c.balances[user][account] = amount
-  saveDB(db)
-}
- 
-export function getBalances(chat_id){
-  const db = loadDB()
-  const c = ensureChat(db, chat_id)
-  return c.balances
-}
- 
-// =============================
-// TRANSAKSI
-// =============================
-export function addTransaction(chat_id, tx){
-  const db = loadDB()
-  const c = ensureChat(db, chat_id)
- 
-  tx.id = Date.now()
-  tx.time = new Date().toISOString()
- 
-  c.transactions.push(tx)
- 
-  // apply to balances
-  if(tx.type === "masuk"){
-    c.balances[tx.user][tx.account || "cash"] =
-      (c.balances[tx.user][tx.account || "cash"] || 0) + tx.amount
+
+  if (amount === 0) {
+    throw new Error("AMOUNT_CANNOT_BE_ZERO");
   }
-  else if(tx.type === "keluar"){
-    c.balances[tx.user][tx.account || "cash"] =
-      (c.balances[tx.user][tx.account || "cash"] || 0) - tx.amount
-  }
-  else if(tx.type === "transfer"){
-    c.balances[tx.user][tx.from] -= tx.amount
-    c.balances[tx.user][tx.to] = (c.balances[tx.user][tx.to]||0) + tx.amount
-  }
- 
-  saveDB(db)
+
+  const stmt = `
+    INSERT INTO ledger
+    (timestamp, user, account, amount, category, note, tags, reference_tx_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `;
+
+  db.prepare(stmt).run(
+    timestamp,
+    user,
+    account,
+    amount,
+    category,
+    note,
+    tags,
+    reference_tx_id
+  );
 }
- 
-// =============================
-// LEDGER
-// =============================
-export function getAllTransactions(chat_id){
-  const db = loadDB()
-  const c = ensureChat(db, chat_id)
-  return c.transactions
+
+/**
+ * Get raw ledger (for history & audit)
+ */
+function getLedger({ limit = 100, offset = 0 } = {}) {
+  return db
+    .prepare(
+      `
+      SELECT *
+      FROM ledger
+      ORDER BY timestamp DESC, id DESC
+      LIMIT ? OFFSET ?
+    `
+    )
+    .all(limit, offset);
 }
+
+/**
+ * Get balance by account
+ */
+function getBalanceByAccount(account) {
+  const row = db
+    .prepare(
+      `
+      SELECT COALESCE(SUM(amount), 0) as balance
+      FROM ledger
+      WHERE account = ?
+    `
+    )
+    .get(account);
+
+  return row.balance;
+}
+
+/**
+ * Get total balance
+ */
+function getTotalBalance() {
+  const row = db
+    .prepare(
+      `
+      SELECT COALESCE(SUM(amount), 0) as balance
+      FROM ledger
+    `
+    )
+    .get();
+
+  return row.balance;
+}
+
+module.exports = {
+  insertTransaction,
+  getLedger,
+  getBalanceByAccount,
+  getTotalBalance
+};
