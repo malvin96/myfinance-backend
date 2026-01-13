@@ -1,10 +1,6 @@
-// index.js
-// MY FINANCE — ENTRY POINT (WEBHOOK TELEGRAM)
-
 const express = require("express");
 const bodyParser = require("body-parser");
-const fs = require("fs");
-const path = require("path");
+const fetch = require("node-fetch");
 
 const { parseInput } = require("./parser");
 const { insertTransaction, getLedger } = require("./ledger");
@@ -17,146 +13,90 @@ const {
 const { exportCSV } = require("./export");
 
 const app = express();
-
-/**
- * === WAJIB: JSON PARSER (NATIVE EXPRESS) ===
- * Ini memastikan payload Telegram terbaca di Render
- */
 app.use(express.json());
 app.use(bodyParser.json());
 
-/**
- * === LOG MASUK (BUKTI REQUEST) ===
- */
-app.use((req, res, next) => {
-  console.log("INCOMING:", req.method, req.url);
-  next();
-});
+// === CONFIG ===
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
-/**
- * Normalize payload dari Telegram / testing manual
- */
-function normalizePayload(req) {
-  if (req.body && req.body.message) {
-    return {
-      text: req.body.message.text || "",
-      sender: req.body.message.from?.username || ""
-    };
-  }
-
-  if (req.body && req.body.text) {
-    return {
-      text: req.body.text,
-      sender: req.body.sender || ""
-    };
-  }
-
-  return { text: "", sender: "" };
+// === SEND MESSAGE TO TELEGRAM ===
+async function sendTelegramMessage(chatId, text) {
+  await fetch(`${TELEGRAM_API}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text
+    })
+  });
 }
 
-function formatText(lines) {
-  return lines.join("\n");
-}
+// === WEBHOOK ===
+app.post("/webhook", async (req, res) => {
+  res.sendStatus(200); // Telegram HARUS cepat dibalas
 
-/**
- * === WEBHOOK TELEGRAM ===
- */
-app.post("/webhook", (req, res) => {
-  console.log("WEBHOOK BODY:", JSON.stringify(req.body));
+  const msg = req.body.message;
+  if (!msg || !msg.text) return;
 
-  try {
-    const { text, sender } = normalizePayload(req);
-    if (!text) {
-      return res.json({ text: "⚠️ Pesan kosong / tidak dikenali." });
-    }
+  const chatId = msg.chat.id;
+  const text = msg.text;
+  const sender = msg.from?.username || "";
 
-    const parsed = parseInput({ text, sender });
+  const parsed = parseInput({ text, sender });
 
-    if (parsed.type === "error") {
-      return res.json({ text: `⚠️ ${parsed.message}` });
-    }
-
-    if (parsed.type === "command") {
-      const cmd = parsed.command;
-
-      if (cmd === "saldo") {
-        const balances = getBalanceByAccount();
-        const total = getTotalBalance();
-
-        const lines = ["SALDO"];
-        balances.forEach(b => lines.push(`${b.account}\t${b.balance}`));
-        lines.push(`TOTAL\t${total}`);
-
-        return res.json({ text: formatText(lines) });
-      }
-
-      if (cmd === "rekap") {
-        const recap = getFullRecap();
-        const byUser = getRecapByUser();
-
-        const lines = ["REKAP"];
-        lines.push(`INCOME\t${recap.income || 0}`);
-        lines.push(`EXPENSE\t${recap.expense || 0}`);
-        lines.push(`NET\t${recap.net || 0}`);
-        lines.push("");
-        byUser.forEach(r => lines.push(`${r.user}\t${r.total}`));
-
-        return res.json({ text: formatText(lines) });
-      }
-
-      if (cmd === "history") {
-        const rows = getLedger({ limit: 20 });
-        const lines = ["HISTORY"];
-        rows.forEach(tx =>
-          lines.push(`${tx.timestamp}\t${tx.account}\t${tx.amount}\t${tx.category}`)
-        );
-        return res.json({ text: formatText(lines) });
-      }
-
-      if (cmd === "export") {
-        const csv = exportCSV({});
-        const date = new Date().toISOString().slice(0, 10);
-        const filename = `myfinance-export-${date}.csv`;
-        const dir = path.join(__dirname, "export");
-
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-        fs.writeFileSync(path.join(dir, filename), csv);
-
-        return res.json({
-          text: `EXPORT SIAP\n${filename}`
-        });
-      }
-    }
-
-    if (parsed.type === "transaction") {
-      insertTransaction(parsed);
-      const balance =
-        getBalanceByAccount().find(b => b.account === parsed.account)?.balance || 0;
-
-      const lines = [
-        "✔️ Tercatat",
-        `${parsed.account}\t${parsed.amount}`,
-        parsed.category,
-        `Saldo ${parsed.account}: ${balance}`
-      ];
-
-      return res.json({ text: formatText(lines) });
-    }
-
-    return res.json({ text: "⚠️ Perintah tidak dikenali." });
-  } catch (err) {
-    console.error("ERROR:", err);
-    return res.json({
-      text: "⚠️ Sistem MY Finance bermasalah. Tidak ada transaksi dicatat."
-    });
+  // ERROR
+  if (parsed.type === "error") {
+    return sendTelegramMessage(chatId, `⚠️ ${parsed.message}`);
   }
+
+  // COMMAND
+  if (parsed.type === "command") {
+    if (parsed.command === "saldo") {
+      const balances = getBalanceByAccount();
+      const total = getTotalBalance();
+
+      let out = "SALDO\n";
+      balances.forEach(b => out += `${b.account}\t${b.balance}\n`);
+      out += `TOTAL\t${total}`;
+
+      return sendTelegramMessage(chatId, out);
+    }
+
+    if (parsed.command === "rekap") {
+      const recap = getFullRecap();
+      const byUser = getRecapByUser();
+
+      let out = "REKAP\n";
+      out += `INCOME\t${recap.income || 0}\n`;
+      out += `EXPENSE\t${recap.expense || 0}\n`;
+      out += `NET\t${recap.net || 0}\n\n`;
+      byUser.forEach(r => out += `${r.user}\t${r.total}\n`);
+
+      return sendTelegramMessage(chatId, out);
+    }
+  }
+
+  // TRANSACTION
+  if (parsed.type === "transaction") {
+    insertTransaction(parsed);
+
+    const balance =
+      getBalanceByAccount().find(b => b.account === parsed.account)?.balance || 0;
+
+    const out =
+`✔️ Tercatat
+${parsed.account}\t${parsed.amount}
+${parsed.category}
+Saldo ${parsed.account}: ${balance}`;
+
+    return sendTelegramMessage(chatId, out);
+  }
+
+  sendTelegramMessage(chatId, "⚠️ Perintah tidak dikenali.");
 });
 
-/**
- * === START SERVER ===
- */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`MY Finance running on port ${PORT}`);
+  console.log("MY FINANCE TELEGRAM BOT RUNNING");
 });
