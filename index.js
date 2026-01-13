@@ -5,71 +5,79 @@ import { initDB, addTx, getSaldo, getRekap } from "./db.js";
 const app = express();
 app.use(express.json());
 
-// ====== ENV ======
+// ===== ENV =====
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 if (!TOKEN) {
-  console.error("❌ TELEGRAM_BOT_TOKEN belum ada di ENV");
+  console.error("❌ TELEGRAM_BOT_TOKEN tidak ada");
   process.exit(1);
 }
-const TG = `https://api.telegram.org/bot${TOKEN}`;
+const TG_API = `https://api.telegram.org/bot${TOKEN}`;
 
-// ====== INIT DB ======
+// ===== INIT DB =====
 initDB();
 
-// ====== SEND MESSAGE (Telegram wajib explicit) ======
+// ===== SEND MESSAGE (FETCH GLOBAL, TANPA DEPENDENCY) =====
 async function sendMessage(chatId, text) {
-  const r = await fetch(`${TG}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text })
-  });
-  if (!r.ok) {
-    const t = await r.text();
-    console.error("❌ sendMessage gagal:", t);
+  try {
+    const res = await fetch(`${TG_API}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text
+      })
+    });
+
+    if (!res.ok) {
+      console.error("❌ Telegram send error:", await res.text());
+    }
+  } catch (e) {
+    console.error("❌ Fetch error:", e.message);
   }
 }
 
-// ====== WEBHOOK ======
+// ===== TELEGRAM WEBHOOK =====
 app.post("/webhook", async (req, res) => {
-  res.sendStatus(200); // cepat balas ke Telegram
+  res.sendStatus(200); // WAJIB cepat
 
   const msg = req.body?.message;
   if (!msg?.text) return;
 
   const chatId = msg.chat.id;
   const text = msg.text.trim();
-  const sender = msg.from?.username || "";
 
   console.log("INCOMING:", text);
 
-  const p = parseInput(text, sender);
+  const p = parseInput(text);
 
   if (p.type === "saldo") {
-    const out = getSaldo(p.account);
-    return sendMessage(chatId, out);
+    return sendMessage(chatId, getSaldo(p.account));
   }
 
   if (p.type === "rekap") {
-    const out = getRekap();
-    return sendMessage(chatId, out);
+    return sendMessage(chatId, getRekap());
   }
 
   if (p.type === "tx") {
     addTx(p);
-    const out = `✔️ Tercatat
+    return sendMessage(
+      chatId,
+      `✔️ TERCATAT
 ${p.user} | ${p.account}
 ${p.amount}
 ${p.category}
-Saldo ${p.account}: ${getSaldo(p.account, true)}`;
-    return sendMessage(chatId, out);
+Saldo ${p.account}: ${getSaldo(p.account, true)}`
+    );
   }
 
-  return sendMessage(chatId, "⚠️ Perintah tidak dikenali.");
+  return sendMessage(chatId, "⚠️ Perintah tidak dikenali");
 });
 
-// ====== HEALTH ======
+// ===== HEALTH =====
 app.get("/", (_, res) => res.send("MY FINANCE LIVE"));
 
-// ====== START ======
+// ===== START =====
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("MY FINANCE TELEGRAM BOT RUNNING"));
+app.listen(PORT, () => {
+  console.log("MY FINANCE TELEGRAM BOT RUNNING");
+});
