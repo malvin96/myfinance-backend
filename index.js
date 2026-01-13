@@ -1,5 +1,5 @@
 // index.js
-// MY FINANCE ENTRY POINT — SINGLE SOURCE OF TRUTH
+// MY FINANCE — ENTRY POINT (WEBHOOK TELEGRAM)
 
 const express = require("express");
 const bodyParser = require("body-parser");
@@ -17,8 +17,25 @@ const {
 const { exportCSV } = require("./export");
 
 const app = express();
+
+/**
+ * === WAJIB: JSON PARSER (NATIVE EXPRESS) ===
+ * Ini memastikan payload Telegram terbaca di Render
+ */
+app.use(express.json());
 app.use(bodyParser.json());
 
+/**
+ * === LOG MASUK (BUKTI REQUEST) ===
+ */
+app.use((req, res, next) => {
+  console.log("INCOMING:", req.method, req.url);
+  next();
+});
+
+/**
+ * Normalize payload dari Telegram / testing manual
+ */
 function normalizePayload(req) {
   if (req.body && req.body.message) {
     return {
@@ -41,10 +58,17 @@ function formatText(lines) {
   return lines.join("\n");
 }
 
+/**
+ * === WEBHOOK TELEGRAM ===
+ */
 app.post("/webhook", (req, res) => {
+  console.log("WEBHOOK BODY:", JSON.stringify(req.body));
+
   try {
     const { text, sender } = normalizePayload(req);
-    if (!text) return res.json({ text: "⚠️ Input kosong." });
+    if (!text) {
+      return res.json({ text: "⚠️ Pesan kosong / tidak dikenali." });
+    }
 
     const parsed = parseInput({ text, sender });
 
@@ -94,10 +118,10 @@ app.post("/webhook", (req, res) => {
         const date = new Date().toISOString().slice(0, 10);
         const filename = `myfinance-export-${date}.csv`;
         const dir = path.join(__dirname, "export");
+
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-        const filepath = path.join(dir, filename);
-        fs.writeFileSync(filepath, csv);
+        fs.writeFileSync(path.join(dir, filename), csv);
 
         return res.json({
           text: `EXPORT SIAP\n${filename}`
@@ -122,12 +146,17 @@ app.post("/webhook", (req, res) => {
 
     return res.json({ text: "⚠️ Perintah tidak dikenali." });
   } catch (err) {
+    console.error("ERROR:", err);
     return res.json({
-      text:
-        "⚠️ Sistem MY Finance sedang bermasalah. Tidak ada transaksi yang dicatat."
+      text: "⚠️ Sistem MY Finance bermasalah. Tidak ada transaksi dicatat."
     });
   }
 });
 
+/**
+ * === START SERVER ===
+ */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`MY Finance running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`MY Finance running on port ${PORT}`);
+});
