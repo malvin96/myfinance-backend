@@ -1,6 +1,6 @@
 import { detectCategory } from "./categories.js";
 
-const ACCOUNTS = ["cash", "bca", "ovo", "gopay", "shopeepay", "bibit", "emas", "cc"];
+const ACCOUNTS = ["cash", "bca", "ovo", "gopay", "shopeepay", "bibit", "emas", "mirrae", "bca sekuritas", "cc"];
 
 function extractAmount(t) {
   const m = t.match(/([\d.,]+)\s*(k|rb|ribu|jt|juta)?/i);
@@ -28,7 +28,12 @@ function parseLine(text, senderId) {
 
   const cmd = cleanText.toLowerCase();
 
+  // Fitur Koreksi
+  if (cmd === "koreksi" || cmd === "batal") return { type: "koreksi", user };
+
+  // Fitur Sistem & CC
   if (cmd === "rekap" || cmd === "saldo") return { type: "rekap" };
+  if (cmd === "cek tagihan") return { type: "list_reminder" };
   if (cmd.startsWith("tagihan ")) {
     const parts = cmd.split(" ");
     return { type: "add_reminder", dueDate: parseInt(parts[1]), note: parts.slice(2).join(" ") };
@@ -45,9 +50,11 @@ function parseLine(text, senderId) {
     return { type: "set_saldo", user, account: acc, amount: extractAmount(cmd) };
   }
 
+  // Transaksi Biasa
   let amount = extractAmount(cmd);
+  const account = ACCOUNTS.find(a => cmd.includes(a)) || "cash";
   return {
-    type: "tx", user, account: ACCOUNTS.find(a => cmd.includes(a)) || "cash",
+    type: "tx", user, account,
     amount: (cmd.includes("gaji") || cmd.includes("masuk")) ? amount : -amount,
     category: detectCategory(cmd).category, note: cleanText
   };
