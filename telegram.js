@@ -1,5 +1,4 @@
 import fetch from "node-fetch";
-
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 
 export async function sendMessage(chatId, text) {
@@ -7,15 +6,9 @@ export async function sendMessage(chatId, text) {
     await fetch(`${TELEGRAM_API}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: text,
-        parse_mode: "Markdown",
-      }),
+      body: JSON.stringify({ chat_id: chatId, text: text, parse_mode: "Markdown" }),
     });
-  } catch (error) {
-    console.error("Error sending message:", error);
-  }
+  } catch (error) { console.error("Error:", error); }
 }
 
 export async function pollUpdates(handleMessage) {
@@ -24,7 +17,7 @@ export async function pollUpdates(handleMessage) {
     try {
       const response = await fetch(`${TELEGRAM_API}/getUpdates?offset=${offset}&timeout=30`);
       const data = await response.json();
-      if (data.result && data.result.length > 0) {
+      if (data.result) {
         for (const update of data.result) {
           if (update.message) {
             const reply = await handleMessage(update.message);
@@ -33,9 +26,6 @@ export async function pollUpdates(handleMessage) {
           offset = update.update_id + 1;
         }
       }
-    } catch (error) {
-      console.error("Polling error:", error);
-      await new Promise(resolve => setTimeout(resolve, 5000));
-    }
+    } catch (e) { await new Promise(r => setTimeout(r, 5000)); }
   }
 }
