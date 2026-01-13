@@ -1,21 +1,33 @@
 const ACCOUNTS = ["cash", "bca", "ovo", "gopay", "shopeepay"];
 
-function parseAmount(t) {
-  const m = t.match(/([\d.,]+)\s*(rb|ribu|jt|juta)?/i);
+function parseAmount(text) {
+  const m = text.toLowerCase().match(/([\d.,]+)\s*(k|rb|ribu|jt|juta)?/);
   if (!m) return null;
-  let n = parseFloat(m[1].replace(/\./g, "").replace(",", "."));
-  const u = (m[2] || "").toLowerCase();
-  if (u.startsWith("rb") || u.startsWith("ribu")) n *= 1000;
-  if (u.startsWith("jt") || u.startsWith("juta")) n *= 1000000;
-  return Math.round(n);
+
+  let num = m[1];
+
+  if (num.includes(".") && num.includes(",")) {
+    num = num.replace(/\./g, "").replace(",", ".");
+  } else {
+    num = num.replace(",", ".");
+  }
+
+  let val = parseFloat(num);
+  if (isNaN(val)) return null;
+
+  const u = m[2] || "";
+  if (u === "k" || u === "rb" || u === "ribu") val *= 1000;
+  if (u === "jt" || u === "juta") val *= 1000000;
+
+  return Math.round(val);
 }
 
 export function parseInput(text) {
-  const t = text.toLowerCase();
+  const t = text.toLowerCase().trim();
 
   if (t.startsWith("saldo")) {
-    const acc = ACCOUNTS.find(a => t.includes(a));
-    return { type: "saldo", account: acc || "ALL" };
+    const acc = ACCOUNTS.find(a => t.includes(a)) || "ALL";
+    return { type: "saldo", account: acc };
   }
 
   if (t.startsWith("rekap")) {
