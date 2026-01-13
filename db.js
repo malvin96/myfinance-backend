@@ -45,8 +45,26 @@ export function getHistoryByPeriod(period) {
   if (period === "hari ini") query += `AND date(ts) = date('now', 'localtime') `;
   else if (period === "minggu ini") query += `AND date(ts) >= date('now', 'localtime', '-7 days') `;
   else if (period === "bulan ini") query += `AND strftime('%m', ts) = strftime('%m', 'now', 'localtime') `;
-  
   const rows = db.prepare(query + ` ORDER BY ts DESC LIMIT 20`).all();
+  db.close();
+  return rows;
+}
+
+export function searchNotes(query) {
+  const db = open();
+  const rows = db.prepare(`SELECT * FROM ledger WHERE note LIKE ? ORDER BY ts DESC LIMIT 10`).all(`%${query}%`);
+  db.close();
+  return rows;
+}
+
+export function getAllBudgetStatus() {
+  const db = open();
+  const rows = db.prepare(`
+    SELECT b.cat, b.amount as limit_amt, 
+    (SELECT SUM(ABS(amount)) FROM ledger 
+     WHERE category = b.cat AND amount < 0 
+     AND strftime('%m', ts) = strftime('%m', 'now', 'localtime')) as used
+    FROM budget b`).all();
   db.close();
   return rows;
 }
@@ -60,7 +78,7 @@ export function getBudgetValue(cat) {
 
 export function getTotalExpenseMonth(cat) {
   const db = open();
-  const row = db.prepare(`SELECT SUM(ABS(amount)) as total FROM ledger WHERE category = ? AND amount < 0 AND strftime('%m', ts) = strftime('%m', 'now')`).get(cat);
+  const row = db.prepare(`SELECT SUM(ABS(amount)) as total FROM ledger WHERE category = ? AND amount < 0 AND strftime('%m', ts) = strftime('%m', 'now', 'localtime')`).get(cat);
   db.close();
   return row ? row.total : 0;
 }
