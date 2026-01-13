@@ -25,9 +25,18 @@ export function addTx(p) {
   return stmt.run(p.user, p.account, p.amount, p.category, p.note);
 }
 
+export function deleteLastTx(user) {
+  const last = db.prepare("SELECT id, note, amount FROM transactions WHERE user = ? ORDER BY id DESC LIMIT 1").get(user);
+  if (last) {
+    db.prepare("DELETE FROM transactions WHERE id = ?").run(last.id);
+    return last;
+  }
+  return null;
+}
+
 export function getRekapLengkap() {
   const startOfMonth = "date('now', 'start of month')";
-  const perAccount = db.prepare("SELECT account, SUM(amount) as balance FROM transactions GROUP BY account").all();
+  const perAccount = db.prepare("SELECT account, SUM(amount) as balance FROM transactions GROUP BY account HAVING balance != 0").all();
   const total = db.prepare(`
     SELECT SUM(CASE WHEN account != 'cc' THEN amount ELSE 0 END) as net_real
     FROM transactions WHERE date(timestamp) >= ${startOfMonth}
