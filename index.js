@@ -1,32 +1,31 @@
 import { pollUpdates } from "./telegram.js";
 import { parseInput } from "./parser.js";
-import { initDB, addTx, getSaldo, getRekapRaw } from "./db.js";
+import { initDB, addTx, getSaldo } from "./db.js";
+import { getRekapRaw } from "./aggregate.js";
 
 initDB();
 
-function fmt(n) {
-  return n.toLocaleString("id-ID");
-}
+const fmt = n => `Rp ${Number(n).toLocaleString("id-ID")}`;
 
 async function handleMessage(msg) {
   const text = msg.text.trim();
   const p = parseInput(text);
 
   if (p.type === "saldo") {
-    const s = getSaldo(p.account, true);
+    const saldo = getSaldo(p.account, true);
     return `💰 SALDO ${p.account.toUpperCase()}
 ━━━━━━━━━━━━
-Rp ${fmt(s)}`;
+${fmt(saldo)}`;
   }
 
   if (p.type === "rekap") {
     const r = getRekapRaw();
     return `📊 REKAP KEUANGAN
 ━━━━━━━━━━━━
-Pemasukan : Rp ${fmt(r.income)}
-Pengeluaran: Rp ${fmt(Math.abs(r.expense))}
+Pemasukan  : ${fmt(r.income)}
+Pengeluaran: ${fmt(Math.abs(r.expense))}
 ━━━━━━━━━━━━
-NET        : Rp ${fmt(r.net)}`;
+NET        : ${fmt(r.net)}`;
   }
 
   if (p.type === "tx") {
@@ -35,13 +34,13 @@ NET        : Rp ${fmt(r.net)}`;
 
     return `✅ TRANSAKSI TERCATAT
 ━━━━━━━━━━━━
-User   : ${p.user}
-Akun   : ${p.account.toUpperCase()}
-Kategori: ${p.category}
-Jumlah : Rp ${fmt(Math.abs(p.amount))}
+User     : ${p.user}
+Akun     : ${p.account.toUpperCase()}
+Kategori : ${p.category}
+Jumlah   : ${fmt(Math.abs(p.amount))}
 ━━━━━━━━━━━━
 Saldo ${p.account.toUpperCase()}
-Rp ${fmt(saldo)}`;
+${fmt(saldo)}`;
   }
 
   return "⚠️ Perintah tidak dikenali";
