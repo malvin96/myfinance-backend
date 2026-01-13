@@ -22,7 +22,7 @@ export function addTx(p) {
 
 export function getSaldo(acc, raw=false) {
   const db = open();
-  const res = acc === "ALL" 
+  const res = (acc === "ALL" || !acc)
     ? db.prepare(`SELECT SUM(amount) as s FROM ledger`).get()
     : db.prepare(`SELECT SUM(amount) as s FROM ledger WHERE account=?`).get(acc);
   db.close();
