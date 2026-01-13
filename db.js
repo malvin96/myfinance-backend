@@ -39,9 +39,16 @@ export function getRekapLengkap() {
   return { total, perUser, perAccount };
 }
 
-export function getHistory() {
+export function getHistoryByPeriod(period) {
   const db = open();
-  return db.prepare(`SELECT * FROM ledger ORDER BY ts DESC LIMIT 10`).all();
+  let query = `SELECT * FROM ledger WHERE 1=1 `;
+  if (period === "hari ini") query += `AND date(ts) = date('now', 'localtime') `;
+  else if (period === "minggu ini") query += `AND date(ts) >= date('now', 'localtime', '-7 days') `;
+  else if (period === "bulan ini") query += `AND strftime('%m', ts) = strftime('%m', 'now', 'localtime') `;
+  
+  const rows = db.prepare(query + ` ORDER BY ts DESC LIMIT 20`).all();
+  db.close();
+  return rows;
 }
 
 export function getBudgetValue(cat) {
