@@ -6,7 +6,7 @@ function parseInput({ text = "", sender = "" }) {
   const lower = text.toLowerCase();
 
   // =====================
-  // 1. HARD GUARD (WAJIB)
+  // 1. HARD GUARD
   // =====================
   const forbidden = ["set saldo", "edit", "hapus"];
   for (const word of forbidden) {
@@ -32,11 +32,13 @@ function parseInput({ text = "", sender = "" }) {
   }
 
   // =====================
-  // 3. USER RESOLUTION
+  // 3. USER RESOLUTION (POLISHED)
   // =====================
   let user = null;
-  if (/\bm\b/.test(lower)) user = "M";
-  if (/\by\b/.test(lower)) user = "Y";
+
+  // token eksplisit: " m ", "(m)", "[m]"
+  if (/(^|\s|\()m(\s|\)|$)/.test(lower)) user = "M";
+  if (/(^|\s|\()y(\s|\)|$)/.test(lower)) user = "Y";
 
   if (!user) {
     if (sender.toLowerCase().includes("malvin")) user = "M";
@@ -109,7 +111,8 @@ function parseInput({ text = "", sender = "" }) {
   // =====================
   const note = original
     .replace(/#\w+/g, "")
-    .replace(/\bm\b|\by\b/gi, "")
+    .replace(/(^|\s|\()m(\s|\)|$)/gi, "")
+    .replace(/(^|\s|\()y(\s|\)|$)/gi, "")
     .trim();
 
   return {
