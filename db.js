@@ -33,15 +33,15 @@ export function addTx(p) {
 
 export function getSaldo(acc, raw=false) {
   const db=open();
-  const q = acc==="ALL"
+  const q = (acc==="ALL" || !acc)
     ? `SELECT SUM(amount) s FROM ledger`
     : `SELECT SUM(amount) s FROM ledger WHERE account=?`;
-  const r = acc==="ALL" ? db.prepare(q).get() : db.prepare(q).get(acc);
+  const r = (acc==="ALL" || !acc) ? db.prepare(q).get() : db.prepare(q).get(acc);
   db.close();
-  return raw ? (r.s||0) : r.s;
+  return raw ? (r?.s||0) : (r?.s||0);
 }
 
-export function getHistory(filter) {
+export function getHistory() {
   const db=open();
   const rows = db.prepare(`SELECT * FROM ledger ORDER BY ts DESC`).all();
   db.close();
@@ -57,13 +57,13 @@ export function getLastTx(acc) {
   return r;
 }
 
-export function addCorrection(last,newAmt) {
+export function addCorrection(last, newAmt) {
   const diff = newAmt - Math.abs(last.amount);
   addTx({
-    user:last.user,
-    account:last.account,
-    amount:last.amount<0 ? -diff : diff,
-    category:"Koreksi",
-    note:"Koreksi transaksi"
+    user: last.user,
+    account: last.account,
+    amount: last.amount < 0 ? -diff : diff,
+    category: "Koreksi",
+    note: `Koreksi dari ${last.amount}`
   });
 }
