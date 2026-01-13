@@ -1,8 +1,7 @@
 import express from "express";
-import Database from "better-sqlite3";
 import { pollUpdates } from "./telegram.js";
 import { parseInput } from "./parser.js";
-import { initDB, addTx, getSaldo, getRekapLengkap, getHistoryByPeriod, getBudgetValue, getTotalExpenseMonth, searchNotes, getAllBudgetStatus } from "./db.js";
+import { initDB, addTx, getRekapLengkap, getHistoryByPeriod, getBudgetValue, getTotalExpenseMonth, searchNotes, getAllBudgetStatus } from "./db.js";
 import { appendToSheet } from "./sheets.js";
 
 const app = express();
@@ -10,7 +9,7 @@ app.get("/", (req, res) => res.send("Bot Aktif"));
 app.listen(process.env.PORT || 3000);
 
 initDB();
-const fmt = n => `Rp ${Number(n).toLocaleString("id-ID")}`;
+const fmt = n => "Rp. " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━";
 
 async function handleMessage(msg) {
@@ -18,6 +17,7 @@ async function handleMessage(msg) {
   if (![5023700044, 8469259152].includes(senderId)) return;
 
   const results = parseInput(msg.text, senderId);
+  if (!results.length) return;
 
   if (results.length === 1) {
     const p = results[0];
@@ -33,56 +33,39 @@ async function handleMessage(msg) {
     if (p.type === "cek_budget") {
       const status = getAllBudgetStatus();
       if (!status.length) return "❌ Belum ada budget yang diset.";
-      let out = `🎯 *STATUS ANGGARAN BULAN INI*\n${line}\n`;
-      status.forEach(s => {
-        const used = s.used || 0;
-        const sisa = s.limit_amt - used;
-        const icon = used > s.limit_amt ? "🚨" : "🟢";
-        out += `${icon} *${s.cat}*\n  Used: \`${fmt(used)}\` / \`${fmt(s.limit_amt)}\`\n  Sisa: \`${fmt(sisa)}\`\n`;
-      });
+      let out = `🎯 *STATUS ANGGARAN*\n${line}\n`;
+      status.forEach(s => out += `${(s.used || 0) > s.limit_amt ? "🚨" : "🟢"} *${s.cat}*\n  Used: \`${fmt(s.used || 0)}\` / \`${fmt(s.limit_amt)}\`\n`);
       return out;
     }
     if (p.type === "search") {
       const rows = searchNotes(p.query);
-      if (!rows.length) return `🔍 Tidak ditemukan hasil untuk "${p.query}"`;
-      return `🔍 *HASIL PENCARIAN: ${p.query.toUpperCase()}*\n${line}\n` + rows.map(r => `• \`${r.ts.split(' ')[0]}\` | \`${fmt(r.amount)}\` | ${r.note}`).join('\n');
+      return rows.length ? `🔍 *HASIL: ${p.query.toUpperCase()}*\n` + rows.map(r => `• \`${fmt(r.amount)}\` | ${r.note}`).join('\n') : "❌ Tidak ditemukan.";
     }
     if (p.type === "history_period") {
       const rows = getHistoryByPeriod(p.period);
-      if (!rows.length) return `📜 Tidak ada data untuk *${p.period}*`;
-      return `📜 *HISTORY ${p.period.toUpperCase()}*\n${line}\n` + rows.map(r => `• \`${r.ts.split(' ')[0].slice(5)}\` | ${r.user} | \`${fmt(r.amount)}\` | ${r.note}`).join('\n');
+      return rows.length ? `📜 *HISTORY ${p.period.toUpperCase()}*\n` + rows.map(r => `• ${r.user} | \`${fmt(r.amount)}\` | ${r.note}`).join('\n') : "❌ Kosong.";
     }
   }
 
   let replies = [];
   for (let p of results) {
-    if (p.type === "set_budget") {
-      const db = new Database("./data/myfinance.db");
-      db.prepare(`INSERT OR REPLACE INTO budget (cat, amount) VALUES (?, ?)`).run(p.category, p.amount);
-      db.close();
-      replies.push(`🎯 *BUDGET DISET*\n${line}\nKategori: ${p.category}\nLimit: \`${fmt(p.amount)}\``);
+    if (p.type === "set_saldo") {
+      addTx({ ...p, category: "Saldo Awal" }); await appendToSheet(p);
+      replies.push(`💰 *Saldo ${p.account.toUpperCase()}* diset ke \`${fmt(p.amount)}\``);
     } else if (p.type === "tx") {
       addTx(p); await appendToSheet(p);
       const limit = getBudgetValue(p.category);
       const used = getTotalExpenseMonth(p.category);
-      const warn = (limit && used > limit) ? `\n⚠️ *OVER BUDGET!* (${fmt(used)}/${fmt(limit)})` : '';
+      const warn = (limit && used > limit) ? `\n⚠️ *OVER BUDGET!*` : '';
       replies.push(`✅ *${p.category}* : \`${fmt(Math.abs(p.amount))}\` (${p.user})${warn}`);
-    } else if (p.type === "set_saldo") {
-      addTx({ ...p, category: "Saldo Awal" }); await appendToSheet(p);
-      replies.push(`💰 *Saldo ${p.account.toUpperCase()}* diset ke \`${fmt(p.amount)}\``);
     } else if (p.type === "transfer_akun") {
       addTx({ ...p, account: p.from, amount: -p.amount, category: "Transfer", note: `Ke ${p.to}` });
       addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer", note: `Dari ${p.from}` });
       await appendToSheet(p);
       replies.push(`🔄 *${p.from.toUpperCase()} ➔ ${p.to.toUpperCase()}* : \`${fmt(p.amount)}\``);
-    } else if (p.type === "transfer_user") {
-      addTx({ user: p.fromUser, account: p.account, amount: -p.amount, category: "Transfer User", note: `Kasih ke ${p.toUser}` });
-      addTx({ user: p.toUser, account: p.account, amount: p.amount, category: "Transfer User", note: `Terima dari ${p.fromUser}` });
-      await appendToSheet(p);
-      replies.push(`🎁 *${p.fromUser} ➔ ${p.toUser}* : \`${fmt(p.amount)}\` (${p.account.toUpperCase()})`);
     }
   }
-  return replies.join('\n') || "⚠️ Perintah tidak dipahami.";
+  return replies.join('\n');
 }
 
 pollUpdates(handleMessage);
