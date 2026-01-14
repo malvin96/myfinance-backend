@@ -48,6 +48,12 @@ export function getBudgetSummary() {
   });
 }
 
+export function getCashflowSummary() {
+  const income = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE amount > 0 AND category != 'Transfer' AND strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')").get();
+  const expense = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE amount < 0 AND category != 'Transfer' AND strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')").get();
+  return { income: income.total || 0, expense: Math.abs(expense.total || 0) };
+}
+
 export function getRekapLengkap() {
   const rows = db.prepare("SELECT user, account, SUM(amount) as balance FROM transactions GROUP BY user, account HAVING balance != 0 ORDER BY user ASC, balance DESC").all();
   const totalWealth = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account != 'cc'").get();
@@ -63,26 +69,13 @@ export function getTotalCCHariIni() {
   return res || { total: 0 };
 }
 
-// FUNGSI UTAMA UNTUK FILTER PDF
 export function getFilteredTransactions(filter) {
   let query = "SELECT timestamp, user, account, category, amount, note FROM transactions";
   let params = [];
-
-  if (filter.type === 'day') {
-    query += " WHERE date(timestamp) = date(?)";
-    params.push(filter.val);
-  } else if (filter.type === 'month') {
-    query += " WHERE strftime('%m-%Y', timestamp) = ?";
-    params.push(filter.val);
-  } else if (filter.type === 'week') {
-    query += " WHERE timestamp >= date('now', '-7 days')";
-  } else if (filter.type === 'all') {
-    // No WHERE clause
-  } else {
-    // Default: Bulan Berjalan
-    query += " WHERE strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')";
-  }
-
+  if (filter.type === 'day') { query += " WHERE date(timestamp) = date(?)"; params.push(filter.val); }
+  else if (filter.type === 'month') { query += " WHERE strftime('%m-%Y', timestamp) = ?"; params.push(filter.val); }
+  else if (filter.type === 'week') { query += " WHERE timestamp >= date('now', '-7 days')"; }
+  else if (filter.type === 'current') { query += " WHERE strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')"; }
   query += " ORDER BY timestamp DESC";
   return db.prepare(query).all(...params);
 }
