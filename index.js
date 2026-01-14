@@ -1,5 +1,6 @@
 import express from "express";
 import fs from 'fs';
+import cron from 'node-cron';
 import { pollUpdates, sendMessage, sendDocument } from "./telegram.js";
 import { parseInput } from "./parser.js";
 import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, resetAccountBalance, setBudget, getBudgetStatus, getChartData, getBudgetSummary, getFilteredTransactions, getCashflowSummary, deleteLastTx } from "./db.js";
@@ -18,13 +19,24 @@ const LIQUID_ACCOUNTS = ["cash", "bca", "ovo", "gopay", "shopeepay"];
 
 const pendingTxs = {};
 
+// --- AUTO BACKUP (23:59 Jakarta) ---
+cron.schedule('59 23 * * *', async () => {
+  const date = new Date().toISOString().slice(0, 10);
+  const backupFile = `myfinance_backup_${date}.db`;
+  try {
+    fs.copyFileSync('myfinance.db', backupFile);
+    await sendDocument(5023700044, backupFile, `📂 **DATABASE DAILY BACKUP**\n${line}\n📅 Tanggal: \`${date}\`\n✅ Status: Aman.`);
+    fs.unlinkSync(backupFile);
+  } catch (err) { console.error("Backup Gagal:", err); }
+}, { timezone: "Asia/Jakarta" });
+
 // Reminder CC 21:00
 setInterval(() => {
   const now = new Date();
   if (now.getHours() === 21 && now.getMinutes() === 0) {
     const cc = getTotalCCHariIni();
     if (cc && cc.total < 0) {
-      sendMessage(5023700044, `🔔 *REMINDER CC*\n${line}\nTagihan CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa dilunasi malam ini! 💳`); 
+      sendMessage(5023700044, `🔔 *REMINDER CC*\n${line}\nTagihan CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa bayar! 💳`); 
     }
   }
 }, 60000);
@@ -35,6 +47,16 @@ async function handleMessage(msg) {
   if (![5023700044, 8469259152].includes(senderId)) return;
 
   const text = msg.text.trim().toLowerCase();
+
+  // Manual Backup
+  if (text === "backup") {
+    await sendMessage(chatId, "⏳ *Menyiapkan database...*");
+    const file = `myfinance_manual.db`;
+    fs.copyFileSync('myfinance.db', file);
+    await sendDocument(chatId, file, `✅ **BACKUP MANUAL SELESAI**`);
+    fs.unlinkSync(file);
+    return;
+  }
 
   // Handler Pending Kategori
   if (pendingTxs[chatId]) {
@@ -49,25 +71,26 @@ async function handleMessage(msg) {
       return `✅ *TERCATAT DI ${p.category.toUpperCase()}*\n└ \`${fmt(Math.abs(p.amount))}\` (${p.user} | ${p.account.toUpperCase()})`;
     } else if (text === "batal") {
       delete pendingTxs[chatId];
-      return "❌ Transaksi dibatalkan.";
+      return "❌ Dibatalkan.";
     } else {
-      return `⚠️ Pilih kategori:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}\n\n_Atau ketik 'batal'_`;
+      return `⚠️ Pilih kategori:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}`;
     }
   }
 
   const results = parseInput(msg.text, senderId);
   if (!results.length) return;
 
-  // List Perintah
+  // List Perintah (UI DIPERBAIKI)
   if (results.length === 1 && results[0].type === "list") {
-    let out = `📜 *CHEATSHEET PERINTAH*\n${line}\n`;
-    out += `💰 *Akun & Saldo*\n├ \`set saldo bca 10jt\`\n└ \`pindah 1jt bca gopay\`\n\n`;
-    out += `📉 *Transaksi*\n├ \`50k makan bca\`\n├ \`100k bonus bca\` (Income)\n├ \`cc 100k bensin\`\n└ \`lunas cc bca 100k\`\n\n`;
-    out += `📊 *Laporan*\n├ \`rekap\` (Status & Cashflow)\n└ \`export pdf\` (Bulan ini)\n${line}\n_Tips: Gunakan 'y ' di depan untuk mencatat buat Yovita._`;
+    let out = `📜 *CHEATSHEET PERINTAH LENGKAP*\n${line}\n`;
+    out += `💰 *Saldo & Akun*\n├ \`set saldo bca 10jt\`\n├ \`pindah 1jt bca gopay\`\n└ \`saldo\` atau \`rekap\`\n\n`;
+    out += `📉 *Catat Belanja*\n├ \`50k makan bca\`\n├ \`cc 100k bensin\`\n├ \`bayar 50k kembali 10k jajan\`\n└ \`koreksi\` (Hapus transaksi terakhir)\n\n`;
+    out += `📈 *Pendapatan (Uang Masuk)*\n└ \`10jt gaji bca\` atau \`50k cashback gopay\`\n\n`;
+    out += `📊 *Sistem*\n├ \`backup\` (Kirim file .db)\n└ \`export pdf\` (Laporan bulanan)\n${line}`;
     return out;
   }
 
-  // Rekap UI
+  // Rekap UI (Tetap rincian Liquid vs Assets)
   if (results.length === 1 && results[0].type === "rekap") {
     const d = getRekapLengkap();
     const catData = getChartData();
@@ -147,7 +170,7 @@ async function handleMessage(msg) {
           appendToSheet(p).catch(e => console.error(e));
         }
       }
-    } catch (e) { replies.push("❌ Terjadi kesalahan."); }
+    } catch (e) { replies.push("❌ Kesalahan."); }
   }
   return replies.join('\n\n');
 }
