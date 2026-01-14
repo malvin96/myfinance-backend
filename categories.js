@@ -6,7 +6,7 @@ export const CATEGORIES = [
   { cat: "Anak", type: "Kebutuhan", keys: ["zoey","anak","susu","pampers","sekolah","mainan"] },
   { cat: "Kesehatan", type: "Kebutuhan", keys: ["dokter","obat","apotek","rs","vitamin"] },
   { cat: "Hiburan", type: "Keinginan", keys: ["netflix","spotify","bioskop","game","liburan","hotel"] },
-  { cat: "Investasi", type: "Netral", keys: ["bibit","mirae","saham","crypto","emas"] }
+  { cat: "Investasi", type: "Netral", keys: ["bibit","mirae","emas","saham","crypto"] }
 ];
 
 export function detectCategory(text = "") {
