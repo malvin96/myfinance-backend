@@ -40,9 +40,7 @@ export const CATEGORIES = [
 export function detectCategory(note) {
   const noteLower = note.toLowerCase();
   for (const c of CATEGORIES) {
-    if (c.keys.some(k => noteLower.includes(k))) {
-      return c;
-    }
+    if (c.keys.some(k => noteLower.includes(k))) return c.cat;
   }
-  return { cat: "Lainnya" };
+  return "Lainnya";
 }
