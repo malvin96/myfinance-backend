@@ -54,9 +54,6 @@ export function getRekapLengkap() {
 }
 
 export function getTotalCCHariIni() {
-  return db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account = 'cc' AND amount < 0 AND date(timestamp) = date('now', 'localtime')").get() || { total: 0 };
-}
-
-export function addReminder(note, dueDate) {
-  return db.prepare("INSERT INTO reminders (note, due_date) VALUES (?, ?)").run(note, dueDate);
+  const res = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account = 'cc' AND amount < 0 AND date(timestamp) = date('now', 'localtime')").get();
+  return res || { total: 0 };
 }
