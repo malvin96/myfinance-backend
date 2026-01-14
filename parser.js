@@ -29,6 +29,7 @@ function parseLine(text, senderId) {
 
   const cmd = cleanText.toLowerCase();
 
+  if (cmd === "list" || cmd === "help") return { type: "list" };
   if (cmd === "koreksi" || cmd === "batal") return { type: "koreksi", user };
   if (cmd === "rekap" || cmd === "saldo") return { type: "rekap" };
 
@@ -46,47 +47,15 @@ function parseLine(text, senderId) {
         return { type: "export_pdf", filter: { type: 'month', val: `${MONTHS[m]}-${yVal}`, title: `Laporan ${m.toUpperCase()} ${yVal}` } };
       }
     }
-
-    const dateMatch = sub.match(/(\d{1,2})[-/ ](\d{1,2})[-/ ](\d{2,4})/);
-    if (dateMatch) {
-      const d = dateMatch[1].padStart(2, '0'), m = dateMatch[2].padStart(2, '0');
-      let y = dateMatch[3]; if (y.length === 2) y = "20" + y;
-      return { type: "export_pdf", filter: { type: 'day', val: `${y}-${m}-${d}`, title: `Laporan Tanggal ${d}-${m}-${y}` } };
-    }
     return { type: "export_pdf", filter: { type: 'current', title: "Laporan" } };
   }
 
-  if (cmd.startsWith("set budget ")) {
-    const parts = cmd.split(" ");
-    return { type: "set_budget", category: parts[2], amount: extractAmount(parts[3]) };
-  }
-  if (cmd.startsWith("cc ")) {
-    return { type: "tx", user, account: "cc", amount: -extractAmount(cmd), category: detectCategory(cmd).category, note: cleanText };
-  }
-  if (cmd.startsWith("lunas cc")) {
-    const bank = ACCOUNTS.find(a => cmd.includes(a) && a !== "cc") || "bca";
-    return { type: "transfer_akun", user, from: bank, to: "cc", amount: extractAmount(cmd) };
-  }
-  if (cmd.includes("set saldo")) {
-    const acc = ACCOUNTS.find(a => cmd.includes(a)) || "cash";
-    return { type: "set_saldo", user, account: acc, amount: extractAmount(cmd) };
-  }
-  if (cmd.startsWith("pindah ")) {
-    const amount = extractAmount(cmd);
-    const from = ACCOUNTS.find(a => cmd.includes(a)) || "bca";
-    const to = ACCOUNTS.filter(a => a !== from).find(a => cmd.includes(a)) || "cash";
-    return { type: "transfer_akun", user, from, to, amount };
-  }
+  if (cmd.startsWith("cc ")) return { type: "tx", user, account: "cc", amount: -extractAmount(cmd), category: detectCategory(cmd).category, note: cleanText };
+  if (cmd.startsWith("lunas cc")) return { type: "transfer_akun", user, from: ACCOUNTS.find(a => cmd.includes(a) && a !== "cc") || "bca", to: "cc", amount: extractAmount(cmd) };
+  if (cmd.includes("set saldo")) return { type: "set_saldo", user, account: ACCOUNTS.find(a => cmd.includes(a)) || "cash", amount: extractAmount(cmd) };
+  if (cmd.startsWith("pindah ")) return { type: "transfer_akun", user, from: ACCOUNTS.find(a => cmd.includes(a)) || "bca", to: ACCOUNTS.filter(a => a !== ACCOUNTS.find(a => cmd.includes(a))).find(a => cmd.includes(a)) || "cash", amount: extractAmount(cmd) };
 
   let amount = extractAmount(cmd);
-  if (cmd.includes("kembali")) {
-    const parts = cmd.split("kembali");
-    amount = extractAmount(parts[0]) - extractAmount(parts[1]);
-  }
-  const account = ACCOUNTS.find(a => cmd.includes(a)) || "cash";
-  return {
-    type: "tx", user, account,
-    amount: (cmd.includes("gaji") || cmd.includes("masuk")) ? amount : -amount,
-    category: detectCategory(cmd).category, note: cleanText
-  };
+  if (cmd.includes("kembali")) amount = extractAmount(cmd.split("kembali")[0]) - extractAmount(cmd.split("kembali")[1]);
+  return { type: "tx", user, account: ACCOUNTS.find(a => cmd.includes(a)) || "cash", amount: (cmd.includes("gaji") || cmd.includes("masuk")) ? amount : -amount, category: detectCategory(cmd).category, note: cleanText };
 }
