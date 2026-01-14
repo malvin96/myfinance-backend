@@ -36,12 +36,24 @@ export function deleteLastTx(user) {
 
 export function getRekapLengkap() {
   const startOfMonth = "date('now', 'start of month')";
-  const perAccount = db.prepare("SELECT account, SUM(amount) as balance FROM transactions GROUP BY account HAVING balance != 0").all();
-  const total = db.prepare(`
-    SELECT SUM(CASE WHEN account != 'cc' THEN amount ELSE 0 END) as net_real
-    FROM transactions WHERE date(timestamp) >= ${startOfMonth}
+  
+  // Saldo per User dan per Akun
+  const rows = db.prepare(`
+    SELECT user, account, SUM(amount) as balance 
+    FROM transactions 
+    GROUP BY user, account 
+    HAVING balance != 0
+    ORDER BY user ASC, balance DESC
+  `).all();
+
+  // Total Kekayaan (Tanpa CC)
+  const totalWealth = db.prepare(`
+    SELECT SUM(amount) as total 
+    FROM transactions 
+    WHERE account != 'cc'
   `).get();
-  return { perAccount, total };
+
+  return { rows, totalWealth: totalWealth.total || 0 };
 }
 
 export function getTotalCCHariIni() {
