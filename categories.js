@@ -1,7 +1,7 @@
 export const CATEGORIES = [
   { cat: "Makan", type: "Kebutuhan", keys: ["makan","ayam","nasi","bakso","mie","kopi","gofood","grabfood","cafe","jajan"] },
-  { cat: "Belanja", type: "Keinginan", keys: ["shopee","tokopedia","belanja","indomaret","alfamart","sayur","buah","susu"] },
-  { cat: "Transport", type: "Kebutuhan", keys: ["grab","gojek","bensin","parkir","tol","taksi","bus","kereta","pesawat"] },
+  { cat: "Belanja", type: "Keinginan", keys: ["shopee","tokopedia","indomaret","alfamart","sayur","buah","susu"] },
+  { cat: "Transport", type: "Kebutuhan", keys: ["grab","gojek","bensin","parkir","tol","taksi"] },
   { cat: "Tagihan", type: "Kebutuhan", keys: ["listrik","air","internet","wifi","pulsa","cicilan","asuransi"] },
   { cat: "Anak", type: "Kebutuhan", keys: ["zoey","anak","susu","pampers","sekolah","mainan"] },
   { cat: "Kesehatan", type: "Kebutuhan", keys: ["dokter","obat","apotek","rs","vitamin"] },
