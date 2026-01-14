@@ -1,94 +1,72 @@
-import express from "express";
-import { pollUpdates, sendMessage } from "./telegram.js";
-import { parseInput } from "./parser.js";
-import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, addReminder, getReminders, deleteLastTx, resetAccountBalance } from "./db.js";
-import { appendToSheet } from "./sheets.js";
+import Database from "better-sqlite3";
+const db = new Database("myfinance.db");
 
-const app = express();
-app.get("/", (req, res) => res.send("Bot Aktif"));
-app.listen(process.env.PORT || 3000);
-
-initDB();
-const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
-const line = "━━━━━━━━━━━━━━━━━━";
-
-// Reminder CC Jam 21:00
-setInterval(() => {
-  const now = new Date();
-  if (now.getHours() === 21 && now.getMinutes() === 0) {
-    const cc = getTotalCCHariIni();
-    if (cc && cc.total < 0) {
-      const msg = `🔔 *REMINDER PELUNASAN CC*\n${line}\nTotal CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa dilunasi malam ini! 💳`;
-      sendMessage(5023700044, msg); 
-    }
-  }
-}, 60000);
-
-async function handleMessage(msg) {
-  const senderId = msg.from.id;
-  if (![5023700044, 8469259152].includes(senderId)) return;
-
-  const results = parseInput(msg.text, senderId);
-  if (!results.length) return;
-
-  // Laporan Rekap dengan UI Baru
-  if (results.length === 1 && results[0].type === "rekap") {
-    const d = getRekapLengkap();
-    const cc = getTotalCCHariIni();
-    let out = `📊 *REKAP KEUANGAN KELUARGA*\n${line}\n`;
-    
-    const users = [...new Set(d.rows.map(r => r.user))];
-    users.forEach(u => {
-      const userName = u === 'M' ? '🧔 MALVIN' : '👩 YOVITA';
-      out += `\n*${userName}*\n`;
-      const userAccounts = d.rows.filter(r => r.user === u);
-      let userTotal = 0;
-      userAccounts.forEach(a => {
-        if(a.account !== 'cc') {
-          out += ` ├ ${a.account.toUpperCase().padEnd(12)}: \`${fmt(a.balance)}\`\n`;
-          userTotal += a.balance;
-        }
-      });
-      out += ` └ *Subtotal:* \`${fmt(userTotal)}\`\n`;
-    });
-
-    out += `\n💳 *TRANSAKSI CC (HARI INI)*\n └ Belum Lunas: \`${fmt(Math.abs(cc.total || 0))}\`\n`;
-    out += `\n${line}\n💰 *TOTAL KEKAYAAN GABUNGAN*\n👉 *${fmt(d.totalWealth)}*`;
-    return out;
-  }
-
-  let replies = [];
-  for (let p of results) {
-    try {
-      if (p.type === "koreksi") {
-        const del = deleteLastTx(p.user);
-        replies.push(del ? `🗑️ *KOREKSI BERHASIL*\nDihapus: "${del.note}" (${fmt(Math.abs(del.amount))})` : "❌ Tidak ada transaksi.");
-      } else if (p.type === "set_saldo") {
-        // Reset dulu baru tambah (Overwrite)
-        resetAccountBalance(p.user, p.account);
-        addTx({ ...p, category: "Saldo Awal" });
-        appendToSheet(p).catch(e => console.error("Sheet Error:", e.message));
-        replies.push(`💰 Saldo ${p.account.toUpperCase()} diset: \`${fmt(p.amount)}\``);
-      } else if (p.type === "tx") {
-        addTx(p);
-        appendToSheet(p).catch(e => console.error("Sheet Error:", e.message));
-        const emoji = p.amount > 0 ? "📈" : "📉";
-        replies.push(`${emoji} *${p.category.toUpperCase()}*\n└ \`${fmt(Math.abs(p.amount))}\` (${p.user} | ${p.account.toUpperCase()})`);
-      } else if (p.type === "transfer_akun") {
-        addTx({ ...p, account: p.from, amount: -p.amount, category: "Transfer" });
-        addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer" });
-        appendToSheet(p).catch(e => console.error("Sheet Error:", e.message));
-        replies.push(`🔄 *TRANSFER BERHASIL*\n└ \`${fmt(p.amount)}\` (${p.from.toUpperCase()} ➔ ${p.to.toUpperCase()})`);
-      } else if (p.type === "add_reminder") {
-        addReminder(p.note, p.dueDate);
-        replies.push(`🔔 Reminder disimpan: *${p.note}* tgl ${p.dueDate}`);
-      }
-    } catch (e) {
-      console.error(e);
-      replies.push("❌ Error saat memproses.");
-    }
-  }
-  return replies.join('\n\n');
+export function initDB() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user TEXT,
+      account TEXT,
+      amount REAL,
+      category TEXT,
+      note TEXT,
+      timestamp DATETIME DEFAULT (DATETIME('now', 'localtime'))
+    );
+    CREATE TABLE IF NOT EXISTS reminders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      note TEXT,
+      due_date INTEGER
+    );
+  `);
 }
 
-pollUpdates(handleMessage);
+export function addTx(p) {
+  const stmt = db.prepare("INSERT INTO transactions (user, account, amount, category, note) VALUES (?, ?, ?, ?, ?)");
+  return stmt.run(p.user, p.account, p.amount, p.category, p.note);
+}
+
+// Fitur Baru: Reset saldo akun agar tidak double
+export function resetAccountBalance(user, account) {
+  const stmt = db.prepare("DELETE FROM transactions WHERE user = ? AND account = ?");
+  return stmt.run(user, account);
+}
+
+export function deleteLastTx(user) {
+  const last = db.prepare("SELECT id, note, amount FROM transactions WHERE user = ? ORDER BY id DESC LIMIT 1").get(user);
+  if (last) {
+    db.prepare("DELETE FROM transactions WHERE id = ?").run(last.id);
+    return last;
+  }
+  return null;
+}
+
+export function getRekapLengkap() {
+  const rows = db.prepare(`
+    SELECT user, account, SUM(amount) as balance 
+    FROM transactions 
+    GROUP BY user, account 
+    HAVING balance != 0
+    ORDER BY user ASC, balance DESC
+  `).all();
+
+  const totalWealth = db.prepare(`
+    SELECT SUM(amount) as total 
+    FROM transactions 
+    WHERE account != 'cc'
+  `).get();
+
+  return { rows, totalWealth: totalWealth.total || 0 };
+}
+
+export function getTotalCCHariIni() {
+  const row = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account = 'cc' AND amount < 0 AND date(timestamp) = date('now', 'localtime')").get();
+  return row || { total: 0 };
+}
+
+export function addReminder(note, dueDate) {
+  return db.prepare("INSERT INTO reminders (note, due_date) VALUES (?, ?)").run(note, dueDate);
+}
+
+export function getReminders() {
+  return db.prepare("SELECT * FROM reminders ORDER BY due_date ASC").all();
+}
