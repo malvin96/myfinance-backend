@@ -1,7 +1,7 @@
 import express from "express";
 import { pollUpdates, sendMessage } from "./telegram.js";
 import { parseInput } from "./parser.js";
-import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, addReminder, getReminders, deleteLastTx } from "./db.js";
+import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, addReminder, getReminders, deleteLastTx, resetAccountBalance } from "./db.js";
 import { appendToSheet } from "./sheets.js";
 
 const app = express();
@@ -12,7 +12,7 @@ initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━";
 
-// AUTO-REMINDER CC 21:00
+// Reminder CC Jam 21:00
 setInterval(() => {
   const now = new Date();
   if (now.getHours() === 21 && now.getMinutes() === 0) {
@@ -31,13 +31,12 @@ async function handleMessage(msg) {
   const results = parseInput(msg.text, senderId);
   if (!results.length) return;
 
+  // Laporan Rekap dengan UI Baru
   if (results.length === 1 && results[0].type === "rekap") {
     const d = getRekapLengkap();
     const cc = getTotalCCHariIni();
-    
     let out = `📊 *REKAP KEUANGAN KELUARGA*\n${line}\n`;
     
-    // Kelompokkan data berdasarkan User
     const users = [...new Set(d.rows.map(r => r.user))];
     users.forEach(u => {
       const userName = u === 'M' ? '🧔 MALVIN' : '👩 YOVITA';
@@ -46,7 +45,7 @@ async function handleMessage(msg) {
       let userTotal = 0;
       userAccounts.forEach(a => {
         if(a.account !== 'cc') {
-          out += ` ├ ${a.account.toUpperCase().padEnd(10)}: \`${fmt(a.balance)}\`\n`;
+          out += ` ├ ${a.account.toUpperCase().padEnd(12)}: \`${fmt(a.balance)}\`\n`;
           userTotal += a.balance;
         }
       });
@@ -55,7 +54,6 @@ async function handleMessage(msg) {
 
     out += `\n💳 *TRANSAKSI CC (HARI INI)*\n └ Belum Lunas: \`${fmt(Math.abs(cc.total || 0))}\`\n`;
     out += `\n${line}\n💰 *TOTAL KEKAYAAN GABUNGAN*\n👉 *${fmt(d.totalWealth)}*`;
-    
     return out;
   }
 
@@ -65,28 +63,29 @@ async function handleMessage(msg) {
       if (p.type === "koreksi") {
         const del = deleteLastTx(p.user);
         replies.push(del ? `🗑️ *KOREKSI BERHASIL*\nDihapus: "${del.note}" (${fmt(Math.abs(del.amount))})` : "❌ Tidak ada transaksi.");
+      } else if (p.type === "set_saldo") {
+        // Reset dulu baru tambah (Overwrite)
+        resetAccountBalance(p.user, p.account);
+        addTx({ ...p, category: "Saldo Awal" });
+        appendToSheet(p).catch(e => console.error("Sheet Error:", e.message));
+        replies.push(`💰 Saldo ${p.account.toUpperCase()} diset: \`${fmt(p.amount)}\``);
+      } else if (p.type === "tx") {
+        addTx(p);
+        appendToSheet(p).catch(e => console.error("Sheet Error:", e.message));
+        const emoji = p.amount > 0 ? "📈" : "📉";
+        replies.push(`${emoji} *${p.category.toUpperCase()}*\n└ \`${fmt(Math.abs(p.amount))}\` (${p.user} | ${p.account.toUpperCase()})`);
+      } else if (p.type === "transfer_akun") {
+        addTx({ ...p, account: p.from, amount: -p.amount, category: "Transfer" });
+        addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer" });
+        appendToSheet(p).catch(e => console.error("Sheet Error:", e.message));
+        replies.push(`🔄 *TRANSFER BERHASIL*\n└ \`${fmt(p.amount)}\` (${p.from.toUpperCase()} ➔ ${p.to.toUpperCase()})`);
       } else if (p.type === "add_reminder") {
         addReminder(p.note, p.dueDate);
-        replies.push(`🔔 Reminder: *${p.note}* tgl ${p.dueDate}`);
-      } else if (p.type === "tx" || p.type === "set_saldo" || p.type === "transfer_akun") {
-        // Eksekusi DB
-        if (p.type === "tx" || p.type === "set_saldo") {
-          addTx({ ...p, category: p.type === "set_saldo" ? "Saldo Awal" : p.category });
-        } else {
-          addTx({ ...p, account: p.from, amount: -p.amount, category: "Transfer" });
-          addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer" });
-        }
-        
-        // KIRIM KE SHEET TANPA AWAIT (Latar Belakang)
-        appendToSheet(p).catch(e => console.error("Sheet Error:", e.message));
-        
-        const emoji = p.amount > 0 ? "📈" : "📉";
-        const label = p.type === "set_saldo" ? "SALDO AWAL" : (p.type === "transfer_akun" ? "TRANSFER" : p.category.toUpperCase());
-        replies.push(`${emoji} *${label}*\n└ \`${fmt(Math.abs(p.amount || 0))}\` (${p.user} | ${p.account?.toUpperCase() || 'TRF'})`);
+        replies.push(`🔔 Reminder disimpan: *${p.note}* tgl ${p.dueDate}`);
       }
     } catch (e) {
-      console.error("Proses Error:", e);
-      replies.push("❌ Terjadi kesalahan teknis.");
+      console.error(e);
+      replies.push("❌ Error saat memproses.");
     }
   }
   return replies.join('\n\n');
