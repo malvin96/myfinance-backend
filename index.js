@@ -18,6 +18,7 @@ const LIQUID_ACCOUNTS = ["cash", "bca", "ovo", "gopay", "shopeepay"];
 
 const pendingTxs = {};
 
+// Reminder CC otomatis jam 21:00
 setInterval(() => {
   const now = new Date();
   if (now.getHours() === 21 && now.getMinutes() === 0) {
@@ -35,6 +36,7 @@ async function handleMessage(msg) {
 
   const text = msg.text.trim().toLowerCase();
 
+  // Handler Konfirmasi Kategori
   if (pendingTxs[chatId]) {
     const matchedCat = CATEGORIES.find(c => c.cat.toLowerCase() === text);
     if (matchedCat) {
@@ -58,6 +60,7 @@ async function handleMessage(msg) {
   const results = parseInput(msg.text, senderId);
   if (!results.length) return;
 
+  // Handler Perintah List/Help
   if (results.length === 1 && results[0].type === "list") {
     let out = `📜 *RINGKASAN PERINTAH BOT*\n${line}\n`;
     out += `💰 *Akun & Saldo*\n├ \`set saldo bca 10jt\`\n└ \`pindah 1jt bca gopay\`\n\n`;
@@ -67,6 +70,7 @@ async function handleMessage(msg) {
     return out;
   }
 
+  // Handler Perintah Rekap
   if (results.length === 1 && results[0].type === "rekap") {
     const d = getRekapLengkap();
     const catData = getChartData();
