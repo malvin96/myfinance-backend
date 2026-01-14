@@ -12,7 +12,7 @@ initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━";
 
-// AUTO-REMINDER CC 21:00
+// Reminder CC Otomatis Jam 21:00
 setInterval(() => {
   const now = new Date();
   if (now.getHours() === 21 && now.getMinutes() === 0) {
@@ -65,37 +65,58 @@ async function handleMessage(msg) {
   let replies = [];
   for (let p of results) {
     try {
+      let emoji = p.amount > 0 ? "📈" : "📉";
+      let header = (p.category || "TX").toUpperCase();
+
       if (p.type === "set_budget") {
         setBudget(p.category, p.amount);
         replies.push(`🎯 Budget *${p.category}* diset ke \`${fmt(p.amount)}\``);
-      } else if (p.type === "export_pdf") {
-        replies.push("📄 Sedang menyiapkan laporan PDF... (Cek Google Sheets Anda untuk data lengkap)");
-      } else if (p.type === "koreksi") {
+        continue;
+      } 
+      
+      if (p.type === "export_pdf") {
+        replies.push("📄 Laporan sedang diproses...");
+        continue;
+      }
+
+      if (p.type === "koreksi") {
         const del = deleteLastTx(p.user);
         replies.push(del ? `🗑️ *KOREKSI BERHASIL*\nDihapus: "${del.note}"` : "❌ Tidak ada transaksi.");
-      } else if (p.type === "tx" || p.type === "set_saldo" || p.type === "transfer_akun") {
-        if (p.type === "set_saldo") {
-          resetAccountBalance(p.user, p.account);
-          addTx({ ...p, category: "Saldo Awal" });
-        } else if (p.type === "transfer_akun") {
-          addTx({ ...p, account: p.from, amount: -p.amount, category: "Transfer" });
-          addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer" });
-        } else {
-          addTx(p);
-        }
-        
-        appendToSheet(p).catch(e => console.error(e));
-        
-        let msgReply = `${p.amount > 0 ? "📈" : "📉"} *${(p.category || 'TX').toUpperCase()}*\n└ \`${fmt(Math.abs(p.amount || 0))}\` (${p.user})`;
-        
-        const b = getBudgetStatus(p.category);
-        if (b) {
-          const persen = Math.round((b.spent / b.limit) * 100);
-          msgReply += `\n\n⚠️ *STATUS BUDGET*\n└ Sisa: \`${fmt(b.limit - b.spent)}\` (${persen}%)`;
-        }
-        replies.push(msgReply);
+        continue;
       }
-    } catch (e) { replies.push("❌ Terjadi kesalahan."); }
+
+      // Logika Inti Transaksi & Saldo
+      if (p.type === "set_saldo") {
+        resetAccountBalance(p.user, p.account);
+        addTx({ ...p, category: "Saldo Awal" });
+        emoji = "💰";
+        header = "SET SALDO";
+      } else if (p.type === "transfer_akun") {
+        addTx({ ...p, account: p.from, amount: -p.amount, category: "Transfer" });
+        addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer" });
+        emoji = "🔄";
+        header = "TRANSFER";
+      } else {
+        addTx(p);
+      }
+      
+      // Kirim ke Google Sheets di background
+      appendToSheet(p).catch(e => console.error("Sheets Error:", e));
+      
+      let msgReply = `${emoji} *${header}*\n└ \`${fmt(Math.abs(p.amount || 0))}\` (${p.user} | ${p.account.toUpperCase()})`;
+      
+      // Cek Budget
+      const b = getBudgetStatus(p.category);
+      if (b && p.type === "tx") {
+        const persen = Math.round((b.spent / b.limit) * 100);
+        msgReply += `\n\n⚠️ *STATUS BUDGET*\n└ Sisa: \`${fmt(b.limit - b.spent)}\` (${persen}%)`;
+      }
+      replies.push(msgReply);
+
+    } catch (e) { 
+      console.error(e);
+      replies.push("❌ Terjadi kesalahan teknis."); 
+    }
   }
   return replies.join('\n\n');
 }
