@@ -50,6 +50,11 @@ function parseLine(text, senderId) {
     return { type: "export_pdf", filter: { type: 'current', title: "Laporan" } };
   }
 
+  if (cmd.startsWith("set budget ")) {
+    const parts = cmd.split(" ");
+    return { type: "set_budget", category: parts[2], amount: extractAmount(parts[3]) };
+  }
+
   if (cmd.startsWith("cc ")) return { type: "tx", user, account: "cc", amount: -extractAmount(cmd), category: detectCategory(cmd).category, note: cleanText };
   if (cmd.startsWith("lunas cc")) return { type: "transfer_akun", user, from: ACCOUNTS.find(a => cmd.includes(a) && a !== "cc") || "bca", to: "cc", amount: extractAmount(cmd) };
   if (cmd.includes("set saldo")) return { type: "set_saldo", user, account: ACCOUNTS.find(a => cmd.includes(a)) || "cash", amount: extractAmount(cmd) };
