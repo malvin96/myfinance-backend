@@ -1,4 +1,7 @@
 import fetch from "node-fetch";
+import FormData from "form-data";
+import fs from "fs";
+
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 
 export async function sendMessage(chatId, text) {
@@ -8,7 +11,16 @@ export async function sendMessage(chatId, text) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId, text: text, parse_mode: "Markdown" }),
     });
-  } catch (error) { console.error("Error Telegram:", error); }
+  } catch (error) { console.error("Error Telegram SendMessage:", error); }
+}
+
+export async function sendDocument(chatId, filePath) {
+  try {
+    const form = new FormData();
+    form.append('chat_id', chatId);
+    form.append('document', fs.createReadStream(filePath));
+    await fetch(`${TELEGRAM_API}/sendDocument`, { method: "POST", body: form });
+  } catch (error) { console.error("Error Telegram SendDocument:", error); }
 }
 
 export async function pollUpdates(handleMessage) {
