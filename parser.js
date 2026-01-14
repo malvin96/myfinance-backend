@@ -30,7 +30,12 @@ function parseLine(text, senderId) {
 
   if (cmd === "koreksi" || cmd === "batal") return { type: "koreksi", user };
   if (cmd === "rekap" || cmd === "saldo") return { type: "rekap" };
-  if (cmd === "cek tagihan") return { type: "list_reminder" };
+  if (cmd === "export pdf") return { type: "export_pdf" };
+  
+  if (cmd.startsWith("set budget ")) {
+    const parts = cmd.split(" ");
+    return { type: "set_budget", category: parts[2], amount: extractAmount(parts[3]) };
+  }
 
   if (cmd.startsWith("tagihan ")) {
     const parts = cmd.split(" ");
