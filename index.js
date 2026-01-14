@@ -2,7 +2,7 @@ import express from "express";
 import fs from 'fs';
 import { pollUpdates, sendMessage, sendDocument } from "./telegram.js";
 import { parseInput } from "./parser.js";
-import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, resetAccountBalance, setBudget, getBudgetStatus, getChartData, getBudgetSummary, getAllTransactions, deleteLastTx } from "./db.js";
+import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, resetAccountBalance, setBudget, getBudgetStatus, getChartData, getBudgetSummary, getFilteredTransactions, deleteLastTx } from "./db.js";
 import { createPDF } from "./export.js";
 import { appendToSheet } from "./sheets.js";
 
@@ -20,7 +20,7 @@ setInterval(() => {
   if (now.getHours() === 21 && now.getMinutes() === 0) {
     const cc = getTotalCCHariIni();
     if (cc && cc.total < 0) {
-      sendMessage(5023700044, `🔔 *REMINDER CC*\n${line}\nTotal tagihan CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa dilunasi malam ini! 💳`); 
+      sendMessage(5023700044, `🔔 *REMINDER CC*\n${line}\nTagihan CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa dilunasi! 💳`); 
     }
   }
 }, 60000);
@@ -81,8 +81,8 @@ async function handleMessage(msg) {
         setBudget(p.category, p.amount);
         replies.push(`🎯 Budget *${p.category}* diset ke \`${fmt(p.amount)}\``);
       } else if (p.type === "export_pdf") {
-        const data = getAllTransactions();
-        const filePath = await createPDF(data);
+        const data = getFilteredTransactions(p.filter);
+        const filePath = await createPDF(data, p.filter.title);
         await sendDocument(msg.chat.id, filePath);
         fs.unlinkSync(filePath); 
         continue;
