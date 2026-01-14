@@ -1,7 +1,9 @@
 import express from "express";
-import { pollUpdates, sendMessage } from "./telegram.js";
+import fs from 'fs';
+import { pollUpdates, sendMessage, sendDocument } from "./telegram.js";
 import { parseInput } from "./parser.js";
-import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, deleteLastTx, resetAccountBalance, setBudget, getBudgetStatus, getChartData } from "./db.js";
+import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, resetAccountBalance, setBudget, getBudgetStatus, getChartData, getBudgetSummary, getAllTransactions, deleteLastTx } from "./db.js";
+import { createPDF } from "./export.js";
 import { appendToSheet } from "./sheets.js";
 
 const app = express();
@@ -11,18 +13,14 @@ app.listen(process.env.PORT || 3000);
 initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━";
-
-// Akun yang dikategorikan sebagai Liquid (Dana Siap Pakai)
 const LIQUID_ACCOUNTS = ["cash", "bca", "ovo", "gopay", "shopeepay"];
 
-// Reminder CC Jam 21:00
 setInterval(() => {
   const now = new Date();
   if (now.getHours() === 21 && now.getMinutes() === 0) {
     const cc = getTotalCCHariIni();
     if (cc && cc.total < 0) {
-      const msg = `🔔 *REMINDER CC*\n${line}\nTotal tagihan CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa dilunasi malam ini! 💳`;
-      sendMessage(5023700044, msg); 
+      sendMessage(5023700044, `🔔 *REMINDER CC*\n${line}\nTagihan CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa dilunasi! 💳`); 
     }
   }
 }, 60000);
@@ -30,14 +28,13 @@ setInterval(() => {
 async function handleMessage(msg) {
   const senderId = msg.from.id;
   if (![5023700044, 8469259152].includes(senderId)) return;
-
   const results = parseInput(msg.text, senderId);
   if (!results.length) return;
 
-  // Laporan Rekap Liquid vs Aset
   if (results.length === 1 && results[0].type === "rekap") {
     const d = getRekapLengkap();
     const catData = getChartData();
+    const budgets = getBudgetSummary();
     const cc = getTotalCCHariIni();
     
     let out = `📊 *LAPORAN KEUANGAN KELUARGA*\n${line}\n`;
@@ -45,26 +42,29 @@ async function handleMessage(msg) {
 
     users.forEach(u => {
       out += `\n*${u === 'M' ? '🧔 MALVIN' : '👩 YOVITA'}*\n`;
-      
       const liquid = d.rows.filter(r => r.user === u && LIQUID_ACCOUNTS.includes(r.account));
       if (liquid.length > 0) {
-        out += ` 💧 *Liquid (Dana Siap Pakai)*\n`;
-        liquid.forEach(a => out += `  ├ ${a.account.toUpperCase().padEnd(10)}: \`${fmt(a.balance)}\`\n`);
+        out += ` 💧 *Liquid*\n`;
+        liquid.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(8)}\`: \`${fmt(a.balance).padStart(12)}\`\n`);
       }
-
       const assets = d.rows.filter(r => r.user === u && !LIQUID_ACCOUNTS.includes(r.account) && r.account !== 'cc');
       if (assets.length > 0) {
-        out += ` 💰 *Assets (Investasi/Tabungan)*\n`;
-        assets.forEach(a => out += `  ├ ${a.account.toUpperCase().padEnd(10)}: \`${fmt(a.balance)}\`\n`);
+        out += ` 💰 *Assets*\n`;
+        assets.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(8)}\`: \`${fmt(a.balance).padStart(12)}\`\n`);
       }
-      
       const userTotal = d.rows.filter(r => r.user === u && r.account !== 'cc').reduce((a, b) => a + b.balance, 0);
-      out += ` └ *User Net Worth:* \`${fmt(userTotal)}\`\n`;
+      out += ` └ *Total Net:* \`${fmt(userTotal).padStart(12)}\`\n`;
     });
 
-    out += `\n💳 *CC HARI INI:* \`${fmt(Math.abs(cc.total || 0))}\`\n`;
-    out += `${line}\n🌍 *NET WORTH GABUNGAN*\n👉 *${fmt(d.totalWealth)}*\n`;
+    if (budgets.length > 0) {
+      out += `\n🎯 *RINGKASAN BUDGET*\n`;
+      budgets.forEach(b => {
+        const sisa = b.limit - b.spent;
+        out += ` ${sisa < 0 ? '🔴' : '🟢'} *${b.category}*: \`${fmt(sisa)}\` sisa\n`;
+      });
+    }
 
+    out += `\n💳 *CC HARI INI:* \`${fmt(Math.abs(cc.total || 0))}\`\n${line}\n🌍 *NET WORTH GABUNGAN*\n👉 *${fmt(d.totalWealth)}*\n`;
     if (catData.length > 0) {
       const labels = catData.map(i => i.category);
       const values = catData.map(i => i.total);
@@ -80,36 +80,31 @@ async function handleMessage(msg) {
       if (p.type === "set_budget") {
         setBudget(p.category, p.amount);
         replies.push(`🎯 Budget *${p.category}* diset ke \`${fmt(p.amount)}\``);
+      } else if (p.type === "export_pdf") {
+        const data = getAllTransactions();
+        const filePath = await createPDF(data);
+        await sendDocument(msg.chat.id, filePath);
+        fs.unlinkSync(filePath); // Hapus file setelah dikirim
         continue;
-      } 
-      if (p.type === "koreksi") {
+      } else if (p.type === "koreksi") {
         const del = deleteLastTx(p.user);
         replies.push(del ? `🗑️ *KOREKSI BERHASIL*\nDihapus: "${del.note}"` : "❌ Tidak ada transaksi.");
-        continue;
-      }
-
-      let msgReply = "";
-      if (p.type === "set_saldo") {
+      } else if (p.type === "set_saldo") {
         resetAccountBalance(p.user, p.account);
         addTx({ ...p, category: "Saldo Awal" });
-        msgReply = `💰 *SET SALDO ${p.account.toUpperCase()} (${p.user}) - ${fmt(p.amount)}*`;
+        replies.push(`💰 *SET SALDO ${p.account.toUpperCase()} (${p.user}) - ${fmt(p.amount)}*`);
       } else if (p.type === "transfer_akun") {
         addTx({ ...p, account: p.from, amount: -p.amount, category: "Transfer" });
         addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer" });
-        msgReply = `🔄 *TRANSFER ${p.from.toUpperCase()} ➔ ${p.to.toUpperCase()} (${p.user}) - ${fmt(p.amount)}*`;
-      } else {
+        replies.push(`🔄 *TRANSFER ${p.from.toUpperCase()} ➔ ${p.to.toUpperCase()} (${p.user}) - ${fmt(p.amount)}*`);
+      } else if (p.type === "tx") {
         addTx(p);
-        const emoji = p.amount > 0 ? "📈" : "📉";
-        msgReply = `${emoji} *${p.category.toUpperCase()}*\n└ \`${fmt(Math.abs(p.amount))}\` (${p.user} | ${p.account.toUpperCase()})`;
-        
+        let msgReply = `${p.amount > 0 ? "📈" : "📉"} *${p.category.toUpperCase()}*\n└ \`${fmt(Math.abs(p.amount))}\` (${p.user} | ${p.account.toUpperCase()})`;
         const b = getBudgetStatus(p.category);
-        if (b && p.amount < 0) {
-          const persen = Math.round((b.spent / b.limit) * 100);
-          msgReply += `\n\n⚠️ *STATUS BUDGET*\n└ Sisa: \`${fmt(b.limit - b.spent)}\` (${persen}%)`;
-        }
+        if (b && p.amount < 0) msgReply += `\n\n⚠️ *STATUS BUDGET*\n└ Sisa: \`${fmt(b.limit - b.spent)}\` (${Math.round((b.spent/b.limit)*100)}%)`;
+        replies.push(msgReply);
       }
       appendToSheet(p).catch(e => console.error(e));
-      replies.push(msgReply);
     } catch (e) { replies.push("❌ Terjadi kesalahan teknis."); }
   }
   return replies.join('\n\n');
