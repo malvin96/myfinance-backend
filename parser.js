@@ -30,7 +30,6 @@ function parseLine(text, senderId) {
 
   if (cmd === "koreksi" || cmd === "batal") return { type: "koreksi", user };
   if (cmd === "rekap" || cmd === "saldo") return { type: "rekap" };
-  if (cmd === "cek tagihan") return { type: "list_reminder" };
   
   if (cmd.startsWith("tagihan ")) {
     const parts = cmd.split(" ");
