@@ -20,7 +20,7 @@ setInterval(() => {
   if (now.getHours() === 21 && now.getMinutes() === 0) {
     const cc = getTotalCCHariIni();
     if (cc && cc.total < 0) {
-      sendMessage(5023700044, `🔔 *REMINDER CC*\n${line}\nTagihan CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa dilunasi! 💳`); 
+      sendMessage(5023700044, `🔔 *REMINDER CC*\n${line}\nTotal tagihan CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa dilunasi malam ini! 💳`); 
     }
   }
 }, 60000);
@@ -45,15 +45,15 @@ async function handleMessage(msg) {
       const liquid = d.rows.filter(r => r.user === u && LIQUID_ACCOUNTS.includes(r.account));
       if (liquid.length > 0) {
         out += ` 💧 *Liquid*\n`;
-        liquid.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(8)}\`: \`${fmt(a.balance).padStart(12)}\`\n`);
+        liquid.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(8)}\`: \`${fmt(a.balance).padStart(13)}\`\n`);
       }
       const assets = d.rows.filter(r => r.user === u && !LIQUID_ACCOUNTS.includes(r.account) && r.account !== 'cc');
       if (assets.length > 0) {
         out += ` 💰 *Assets*\n`;
-        assets.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(8)}\`: \`${fmt(a.balance).padStart(12)}\`\n`);
+        assets.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(8)}\`: \`${fmt(a.balance).padStart(13)}\`\n`);
       }
       const userTotal = d.rows.filter(r => r.user === u && r.account !== 'cc').reduce((a, b) => a + b.balance, 0);
-      out += ` └ *Total Net:* \`${fmt(userTotal).padStart(12)}\`\n`;
+      out += ` └ *Total Net:* \`${fmt(userTotal).padStart(13)}\`\n`;
     });
 
     if (budgets.length > 0) {
@@ -84,7 +84,7 @@ async function handleMessage(msg) {
         const data = getAllTransactions();
         const filePath = await createPDF(data);
         await sendDocument(msg.chat.id, filePath);
-        fs.unlinkSync(filePath); // Hapus file setelah dikirim
+        fs.unlinkSync(filePath); 
         continue;
       } else if (p.type === "koreksi") {
         const del = deleteLastTx(p.user);
