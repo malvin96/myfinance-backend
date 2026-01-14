@@ -14,13 +14,15 @@ export async function sendMessage(chatId, text) {
   } catch (error) { console.error("Error Telegram:", error); }
 }
 
-export async function sendDocument(chatId, filePath) {
+export async function sendDocument(chatId, filePath, caption = "") {
   try {
     const form = new FormData();
     form.append('chat_id', chatId);
+    form.append('caption', caption);
+    form.append('parse_mode', 'Markdown');
     form.append('document', fs.createReadStream(filePath));
     await fetch(`${TELEGRAM_API}/sendDocument`, { method: "POST", body: form });
-  } catch (error) { console.error("Error Telegram PDF:", error); }
+  } catch (error) { console.error("Error Telegram Document:", error); }
 }
 
 export async function pollUpdates(handleMessage) {
