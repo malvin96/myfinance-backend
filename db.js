@@ -1,72 +1,73 @@
-import Database from "better-sqlite3";
-const db = new Database("myfinance.db");
+import { detectCategory } from "./categories.js";
 
-export function initDB() {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user TEXT,
-      account TEXT,
-      amount REAL,
-      category TEXT,
-      note TEXT,
-      timestamp DATETIME DEFAULT (DATETIME('now', 'localtime'))
-    );
-    CREATE TABLE IF NOT EXISTS reminders (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      note TEXT,
-      due_date INTEGER
-    );
-  `);
+const ACCOUNTS = ["cash", "bca", "ovo", "gopay", "shopeepay", "bibit", "emas", "mirrae", "bca sekuritas", "cc"];
+
+function extractAmount(t) {
+  const m = t.match(/([\d.,]+)\s*(k|rb|ribu|jt|juta)?/i);
+  if (!m) return 0;
+  let val = m[1].replace(/\./g, '').replace(',', '.');
+  val = parseFloat(val) || 0;
+  const unit = (m[2] || "").toLowerCase();
+  if (["k", "rb", "ribu"].includes(unit)) val *= 1000;
+  if (["jt", "juta"].includes(unit)) val *= 1000000;
+  return val;
 }
 
-export function addTx(p) {
-  const stmt = db.prepare("INSERT INTO transactions (user, account, amount, category, note) VALUES (?, ?, ?, ?, ?)");
-  return stmt.run(p.user, p.account, p.amount, p.category, p.note);
+export function parseInput(text, senderId) {
+  if (!text) return [];
+  return text.split('\n').filter(l => l.trim()).map(line => parseLine(line, senderId));
 }
 
-// Fitur Baru: Reset saldo akun agar tidak double
-export function resetAccountBalance(user, account) {
-  const stmt = db.prepare("DELETE FROM transactions WHERE user = ? AND account = ?");
-  return stmt.run(user, account);
-}
+function parseLine(text, senderId) {
+  const rawLower = text.toLowerCase().trim();
+  let user = (senderId === 8469259152) ? "Y" : "M";
+  let cleanText = text;
 
-export function deleteLastTx(user) {
-  const last = db.prepare("SELECT id, note, amount FROM transactions WHERE user = ? ORDER BY id DESC LIMIT 1").get(user);
-  if (last) {
-    db.prepare("DELETE FROM transactions WHERE id = ?").run(last.id);
-    return last;
+  if (rawLower.startsWith("y ")) { user = "Y"; cleanText = text.substring(2).trim(); }
+  else if (rawLower.startsWith("m ")) { user = "M"; cleanText = text.substring(2).trim(); }
+
+  const cmd = cleanText.toLowerCase();
+
+  if (cmd === "koreksi" || cmd === "batal") return { type: "koreksi", user };
+  if (cmd === "rekap" || cmd === "saldo") return { type: "rekap" };
+  if (cmd === "cek tagihan") return { type: "list_reminder" };
+
+  if (cmd.startsWith("tagihan ")) {
+    const parts = cmd.split(" ");
+    return { type: "add_reminder", dueDate: parseInt(parts[1]), note: parts.slice(2).join(" ") };
   }
-  return null;
-}
 
-export function getRekapLengkap() {
-  const rows = db.prepare(`
-    SELECT user, account, SUM(amount) as balance 
-    FROM transactions 
-    GROUP BY user, account 
-    HAVING balance != 0
-    ORDER BY user ASC, balance DESC
-  `).all();
+  if (cmd.startsWith("cc ")) {
+    return { type: "tx", user, account: "cc", amount: -extractAmount(cmd), category: detectCategory(cmd).category, note: cleanText };
+  }
 
-  const totalWealth = db.prepare(`
-    SELECT SUM(amount) as total 
-    FROM transactions 
-    WHERE account != 'cc'
-  `).get();
+  if (cmd.startsWith("lunas cc")) {
+    const bank = ACCOUNTS.find(a => cmd.includes(a) && a !== "cc") || "bca";
+    return { type: "transfer_akun", user, from: bank, to: "cc", amount: extractAmount(cmd) };
+  }
 
-  return { rows, totalWealth: totalWealth.total || 0 };
-}
+  if (cmd.includes("set saldo")) {
+    const acc = ACCOUNTS.find(a => cmd.includes(a)) || "cash";
+    return { type: "set_saldo", user, account: acc, amount: extractAmount(cmd) };
+  }
 
-export function getTotalCCHariIni() {
-  const row = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account = 'cc' AND amount < 0 AND date(timestamp) = date('now', 'localtime')").get();
-  return row || { total: 0 };
-}
+  if (cmd.startsWith("pindah ")) {
+    const amount = extractAmount(cmd);
+    const from = ACCOUNTS.find(a => cmd.includes(a)) || "bca";
+    const to = ACCOUNTS.filter(a => a !== from).find(a => cmd.includes(a)) || "cash";
+    return { type: "transfer_akun", user, from, to, amount };
+  }
 
-export function addReminder(note, dueDate) {
-  return db.prepare("INSERT INTO reminders (note, due_date) VALUES (?, ?)").run(note, dueDate);
-}
+  let amount = extractAmount(cmd);
+  if (cmd.includes("kembali")) {
+    const parts = cmd.split("kembali");
+    amount = extractAmount(parts[0]) - extractAmount(parts[1]);
+  }
 
-export function getReminders() {
-  return db.prepare("SELECT * FROM reminders ORDER BY due_date ASC").all();
+  const account = ACCOUNTS.find(a => cmd.includes(a)) || "cash";
+  return {
+    type: "tx", user, account,
+    amount: (cmd.includes("gaji") || cmd.includes("masuk")) ? amount : -amount,
+    category: detectCategory(cmd).category, note: cleanText
+  };
 }
