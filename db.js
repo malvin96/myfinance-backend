@@ -43,6 +43,14 @@ export function getBudgetStatus(category) {
   return { limit: budget.amount, spent: Math.abs(spent.total || 0) };
 }
 
+export function getBudgetSummary() {
+  const budgets = db.prepare("SELECT * FROM budgets").all();
+  return budgets.map(b => {
+    const spent = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE category = ? AND amount < 0 AND strftime('%m', timestamp) = strftime('%m', 'now')").get(b.category);
+    return { category: b.category, limit: b.amount, spent: Math.abs(spent.total || 0) };
+  });
+}
+
 export function getChartData() {
   return db.prepare("SELECT category, ABS(SUM(amount)) as total FROM transactions WHERE amount < 0 AND strftime('%m', timestamp) = strftime('%m', 'now') GROUP BY category").all();
 }
@@ -51,6 +59,10 @@ export function getRekapLengkap() {
   const rows = db.prepare("SELECT user, account, SUM(amount) as balance FROM transactions GROUP BY user, account HAVING balance != 0 ORDER BY user ASC, balance DESC").all();
   const totalWealth = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account != 'cc'").get();
   return { rows, totalWealth: totalWealth.total || 0 };
+}
+
+export function getAllTransactions() {
+  return db.prepare("SELECT timestamp, user, account, category, amount, note FROM transactions ORDER BY timestamp DESC").all();
 }
 
 export function getTotalCCHariIni() {
