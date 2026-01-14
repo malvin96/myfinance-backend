@@ -8,9 +8,6 @@ export function initDB() {
       user TEXT, account TEXT, amount REAL, category TEXT, note TEXT,
       timestamp DATETIME DEFAULT (DATETIME('now', 'localtime'))
     );
-    CREATE TABLE IF NOT EXISTS reminders (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, note TEXT, due_date INTEGER
-    );
     CREATE TABLE IF NOT EXISTS budgets (
       category TEXT PRIMARY KEY, amount REAL
     );
