@@ -3,11 +3,11 @@ import { JWT } from 'google-auth-library';
 
 const serviceAccountAuth = new JWT({
   email: 'finance-bot-sheets@myfinance-bot.iam.gserviceaccount.com',
-  key: "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n", // Gunakan private key asli Anda
+  key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'), 
   scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
-const doc = new GoogleSpreadsheet('1KXwvsfy4UdWG7I4AkweeCph8rTm-aiQAvUPe08kdmdA', serviceAccountAuth);
+const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, serviceAccountAuth);
 
 export async function appendToSheet(data) {
   try {
@@ -15,7 +15,7 @@ export async function appendToSheet(data) {
     const sheet = doc.sheetsByIndex[0];
     await sheet.addRow({
       Tanggal: new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }),
-      User: data.user || 'System',
+      User: data.user || 'M',
       Kategori: data.category || 'Lainnya',
       Jumlah: Math.abs(data.amount || 0),
       Akun: (data.account || 'Cash').toUpperCase(),
