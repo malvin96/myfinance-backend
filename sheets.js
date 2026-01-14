@@ -1,7 +1,7 @@
 import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { JWT } from 'google-auth-library';
 
-// Proteksi: replace() hanya jalan jika GOOGLE_PRIVATE_KEY ada di Render
+// Menghindari eror jika environment belum siap
 const privateKey = process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n') : null;
 
 const serviceAccountAuth = privateKey ? new JWT({
@@ -16,10 +16,9 @@ const doc = (process.env.GOOGLE_SHEET_ID && serviceAccountAuth)
 
 export async function appendToSheet(data) {
   if (!doc) {
-    console.warn("⚠️ Google Sheets dilewati: GOOGLE_PRIVATE_KEY belum di-set di Render.");
+    console.warn("⚠️ Google Sheets dilewati: GOOGLE_PRIVATE_KEY atau GOOGLE_SHEET_ID belum diatur.");
     return;
   }
-  
   try {
     await doc.loadInfo();
     const sheet = doc.sheetsByIndex[0];
@@ -31,7 +30,5 @@ export async function appendToSheet(data) {
       Akun: (data.account || 'Cash').toUpperCase(),
       Keterangan: data.note || '-'
     });
-  } catch (e) { 
-    console.error("❌ Sheet Error:", e.message); 
-  }
+  } catch (e) { console.error("❌ Sheet Error:", e.message); }
 }
