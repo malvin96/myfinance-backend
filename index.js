@@ -51,7 +51,7 @@ async function handleMessage(msg) {
       delete pendingTxs[chatId];
       return "❌ Transaksi dibatalkan.";
     } else {
-      return `⚠️ Kategori *'${text}'* tidak ditemukan.\n\nPilih kategori:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}\n\nAtau ketik *'batal'*.`;
+      return `⚠️ Kategori *'${text}'* tidak ditemukan.\n\nBalas dengan salah satu:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}\n\nAtau ketik *'batal'*.`;
     }
   }
 
