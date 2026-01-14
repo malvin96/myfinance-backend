@@ -38,8 +38,7 @@ function parseLine(text, senderId) {
     if (!sub) return { type: "export_pdf", filter: { type: 'current', title: "Laporan Bulan Berjalan" } };
     if (sub === "all") return { type: "export_pdf", filter: { type: 'all', title: "Laporan Seluruh History" } };
     if (sub === "minggu") return { type: "export_pdf", filter: { type: 'week', title: "Laporan 7 Hari Terakhir" } };
-    if (sub === "hari") return { type: "export_pdf", filter: { type: 'day', val: new Date().toISOString().slice(0, 10), title: "Laporan Hari Ini" } };
-
+    
     for (let m in MONTHS) {
       if (sub.includes(m)) {
         const yearMatch = sub.match(/\d+/);
@@ -61,6 +60,20 @@ function parseLine(text, senderId) {
   if (cmd.startsWith("pindah ")) return { type: "transfer_akun", user, from: ACCOUNTS.find(a => cmd.includes(a)) || "bca", to: ACCOUNTS.filter(a => a !== ACCOUNTS.find(a => cmd.includes(a))).find(a => cmd.includes(a)) || "cash", amount: extractAmount(cmd) };
 
   let amount = extractAmount(cmd);
-  if (cmd.includes("kembali")) amount = extractAmount(cmd.split("kembali")[0]) - extractAmount(cmd.split("kembali")[1]);
-  return { type: "tx", user, account: ACCOUNTS.find(a => cmd.includes(a)) || "cash", amount: (cmd.includes("gaji") || cmd.includes("masuk")) ? amount : -amount, category: detectCategory(cmd).category, note: cleanText };
+  if (cmd.includes("kembali")) {
+    const parts = cmd.split("kembali");
+    amount = extractAmount(parts[0]) - extractAmount(parts[1]);
+  }
+
+  const account = ACCOUNTS.find(a => cmd.includes(a)) || "cash";
+  const catObj = detectCategory(cmd);
+
+  // LOGIKA INCOME: Jika kategori Pendapatan, nominal otomatis POSITIF
+  const isIncome = catObj.category === "Pendapatan";
+
+  return {
+    type: "tx", user, account,
+    amount: isIncome ? amount : -amount,
+    category: catObj.category, note: cleanText
+  };
 }
