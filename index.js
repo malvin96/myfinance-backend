@@ -13,12 +13,12 @@ app.listen(process.env.PORT || 3000);
 
 initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
-const line = "━━━━━━━━━━━━━━━━━━";
+const line = "━━━━━━━━━━━━━━━━━━━";
 const LIQUID_ACCOUNTS = ["cash", "bca", "ovo", "gopay", "shopeepay"];
 
 const pendingTxs = {};
 
-// Reminder CC otomatis jam 21:00
+// Reminder CC 21:00
 setInterval(() => {
   const now = new Date();
   if (now.getHours() === 21 && now.getMinutes() === 0) {
@@ -36,41 +36,38 @@ async function handleMessage(msg) {
 
   const text = msg.text.trim().toLowerCase();
 
-  // Handler Konfirmasi Kategori
+  // Handler Pending Kategori
   if (pendingTxs[chatId]) {
     const matchedCat = CATEGORIES.find(c => c.cat.toLowerCase() === text);
     if (matchedCat) {
       const p = pendingTxs[chatId];
       p.category = matchedCat.cat;
+      if (p.category === "Pendapatan") p.amount = Math.abs(p.amount);
       delete pendingTxs[chatId];
       addTx(p);
       appendToSheet(p).catch(e => console.error(e));
-      let res = `✅ *TERCATAT DI ${p.category.toUpperCase()}*\n└ \`${fmt(Math.abs(p.amount))}\` (${p.user} | ${p.account.toUpperCase()})`;
-      const b = getBudgetStatus(p.category);
-      if (b && p.amount < 0) res += `\n\n⚠️ *STATUS BUDGET*\n└ Sisa: \`${fmt(b.limit - b.spent)}\``;
-      return res;
+      return `✅ *TERCATAT DI ${p.category.toUpperCase()}*\n└ \`${fmt(Math.abs(p.amount))}\` (${p.user} | ${p.account.toUpperCase()})`;
     } else if (text === "batal") {
       delete pendingTxs[chatId];
       return "❌ Transaksi dibatalkan.";
     } else {
-      return `⚠️ Kategori *'${text}'* tidak ditemukan.\n\nBalas dengan salah satu:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}\n\nAtau ketik *'batal'*.`;
+      return `⚠️ Pilih kategori:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}\n\n_Atau ketik 'batal'_`;
     }
   }
 
   const results = parseInput(msg.text, senderId);
   if (!results.length) return;
 
-  // Handler Perintah List/Help
+  // List Perintah
   if (results.length === 1 && results[0].type === "list") {
-    let out = `📜 *RINGKASAN PERINTAH BOT*\n${line}\n`;
+    let out = `📜 *CHEATSHEET PERINTAH*\n${line}\n`;
     out += `💰 *Akun & Saldo*\n├ \`set saldo bca 10jt\`\n└ \`pindah 1jt bca gopay\`\n\n`;
-    out += `📉 *Transaksi*\n├ \`50k makan bca\`\n├ \`cc 100k bensin\`\n└ \`lunas cc bca 100k\`\n\n`;
-    out += `📊 *Laporan*\n├ \`rekap\` (Cashflow & Aset)\n├ \`export pdf\` (Bulan ini)\n├ \`export pdf minggu\`\n└ \`export pdf all\`\n\n`;
-    out += `⚙️ *Lainnya*\n├ \`koreksi\` (Hapus terakhir)\n└ \`list\` (Menu ini)\n${line}`;
+    out += `📉 *Transaksi*\n├ \`50k makan bca\`\n├ \`100k bonus bca\` (Income)\n├ \`cc 100k bensin\`\n└ \`lunas cc bca 100k\`\n\n`;
+    out += `📊 *Laporan*\n├ \`rekap\` (Status & Cashflow)\n└ \`export pdf\` (Bulan ini)\n${line}\n_Tips: Gunakan 'y ' di depan untuk mencatat buat Yovita._`;
     return out;
   }
 
-  // Handler Perintah Rekap
+  // Rekap UI
   if (results.length === 1 && results[0].type === "rekap") {
     const d = getRekapLengkap();
     const catData = getChartData();
@@ -140,7 +137,7 @@ async function handleMessage(msg) {
       } else if (p.type === "tx") {
         if (p.category === "Lainnya") {
           pendingTxs[chatId] = p;
-          replies.push(`❓ *KATEGORI TIDAK DIKENAL*\nUntuk: "${p.note}"\n\nPilih kategori:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}\n\n_Ketik 'batal'._`);
+          replies.push(`❓ *KATEGORI TIDAK DIKENAL*\nUntuk: "${p.note}"\n\nPilih kategori:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}\n\n_Atau ketik 'batal'_`);
         } else {
           addTx(p);
           let msgReply = `${p.amount > 0 ? "📈" : "📉"} *${p.category.toUpperCase()}*\n└ \`${fmt(Math.abs(p.amount))}\` (${p.user} | ${p.account.toUpperCase()})`;
