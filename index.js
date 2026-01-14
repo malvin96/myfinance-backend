@@ -10,7 +10,8 @@ import { CATEGORIES } from "./categories.js";
 
 const app = express();
 app.get("/", (req, res) => res.send("Bot MaYo Aktif"));
-app.listen(process.env.PORT || 3000);
+const port = process.env.PORT || 3000;
+app.listen(port);
 
 initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
@@ -32,12 +33,12 @@ cron.schedule('59 23 * * *', async () => {
   } catch (e) { console.error(e); }
 }, { timezone: "Asia/Jakarta" });
 
-// CC Reminder 21:00
+// Reminder CC 21:00
 setInterval(() => {
   const now = new Date();
   if (now.getHours() === 21 && now.getMinutes() === 0) {
     const cc = getTotalCCHariIni();
-    if (cc && cc.total < 0) sendMessage(5023700044, `🔔 *REMINDER CC*\n${line}\nTagihan CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa bayar! 💳`); 
+    if (cc && cc.total < 0) sendMessage(5023700044, `🔔 *REMINDER CC*\n${line}\nTagihan CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa dilunasi! 💳`); 
   }
 }, 60000);
 
@@ -79,11 +80,11 @@ async function handleMessage(msg) {
 
   if (results.length === 1 && results[0].type === "rekap") {
     const d = getRekapLengkap();
-    const catData = getChartData();
-    const budgets = getBudgetSummary();
     const cc = getTotalCCHariIni();
     const cf = getCashflowSummary();
+    const budgets = getBudgetSummary();
     let out = `📊 *LAPORAN KEUANGAN KELUARGA*\n${line}\n`;
+    
     [...new Set(d.rows.map(r => r.user))].forEach(u => {
       out += `\n*${u === 'M' ? '🧔 MALVIN' : '👩 YOVITA'}*\n`;
       const liquid = d.rows.filter(r => r.user === u && LIQUID_ACCOUNTS.includes(r.account));
@@ -99,18 +100,16 @@ async function handleMessage(msg) {
       const userTotal = d.rows.filter(r => r.user === u && r.account !== 'cc').reduce((a, b) => a + b.balance, 0);
       out += ` └ *Total Net:* \`${fmt(userTotal).padStart(13)}\`\n`;
     });
+
     const netSavings = cf.income - cf.expense;
     out += `\n📈 *CASHFLOW BULAN INI*\n 📥 *In* : \`${fmt(cf.income).padStart(13)}\`\n 📤 *Out* : \`${fmt(cf.expense).padStart(13)}\`\n 💰 *Net* : \`${fmt(netSavings).padStart(13)}\`\n`;
+    
     if (budgets.length > 0) {
-      out += `\n🎯 *RINGKASAN BUDGET*\n`;
+      out += `\n🎯 *BUDGET SISA*\n`;
       budgets.forEach(b => out += ` ${b.spent > b.limit ? '🔴' : '🟢'} *${b.category}*: \`${fmt(b.limit - b.spent)}\` sisa\n`);
     }
-    out += `\n💳 *CC HARI INI:* \`${fmt(Math.abs(cc.total || 0))}\`\n${line}\n🌍 *NET WORTH GABUNGAN*\n👉 *${fmt(d.totalWealth)}*\n`;
-    if (catData.length > 0) {
-      const labels = catData.map(i => i.category); const values = catData.map(i => i.total);
-      const chartUrl = `https://quickchart.io/chart?c={type:'doughnut',data:{labels:[${labels.map(l=>`'${l}'`)}],datasets:[{data:[${values}]}]}}`;
-      out += `\n📈 *ANALISA PENGELUARAN*\n└ [Klik Lihat Grafik Donat](${chartUrl})`;
-    }
+
+    out += `\n💳 *CC HARI INI:* \`${fmt(Math.abs(cc.total || 0))}\`\n${line}\n🌍 *NET WORTH:* *${fmt(d.totalWealth)}*\n`;
     return out;
   }
 
@@ -128,8 +127,9 @@ async function handleMessage(msg) {
         addTx({ ...p, account: p.from, amount: -p.amount, category: "Transfer" }); addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer" });
         replies.push(`🔄 *TRANSFER ${p.from.toUpperCase()} ➔ ${p.to.toUpperCase()}*`);
       } else if (p.type === "tx") {
-        if (p.category === "Lainnya") { pendingTxs[chatId] = p; replies.push(`❓ *KATEGORI TIDAK DIKENAL*\nUntuk: "${p.note}"\n\nPilih kategori:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}`); }
-        else {
+        if (p.category === "Lainnya") {
+          pendingTxs[chatId] = p; replies.push(`❓ *KATEGORI TIDAK DIKENAL*\nUntuk: "${p.note}"\n\nPilih kategori:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}`);
+        } else {
           if (p.category === "Pendapatan") p.amount = Math.abs(p.amount);
           addTx(p); replies.push(`${p.amount > 0 ? "📈" : "📉"} *${p.category.toUpperCase()}*\n└ \`${fmt(Math.abs(p.amount))}\` (${p.user} | ${p.account.toUpperCase()})`);
           appendToSheet(p).catch(console.error);
