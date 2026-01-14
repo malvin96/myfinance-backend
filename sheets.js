@@ -3,7 +3,7 @@ import { JWT } from 'google-auth-library';
 
 const serviceAccountAuth = new JWT({
   email: 'finance-bot-sheets@myfinance-bot.iam.gserviceaccount.com',
-  key: "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDqLJHyWml9TyoQ\nrPgJPe2ZK4xu+AaGXGBK7dPS4z4j0tRi/w95eSKC/4hDaNaBf7SPICK1zK3/lcZQ\nvuQOMMuZ+2r7PBecILPMVdHBI7VNjptjtkFjFB8z+ewJGZIp+NpTfQdZVjUV9SC8\nQKGsWxbocm43KaVluyMyPRO1f2e4onT9addcQ5QKzPc8qAMpliX/jtSha2UJk+0D\nT3Yr96lLqhtNI9tILWu7my2l3VWB8ed+M7A0gf0cOg9DBPKo3+6yxVGZUJRwR97c\naL4U7fPMywYJCYURN8eK+3+n/LIXxUKW5aDJGRKJ2K853TPUuejOKIsRWxSy73pH\nUhVjtUTLAgMBAAECggEAAmgR2eU+90g0fPZiGCo4Ql41s8A9xOy3Gp4GEsE+Fr0o\nbJoFbTCm/6SjoFm39p2628uvP6IKWbmOz66ehlzPAtaYG1vbPEIDxwJMxQjaaKEi\nDKzHUD7ZMT4MxG0sWN0TVU9QH4Vox0B9JSIe5zgKbLocUtnNNtXs/yusg617AeU4\neTst6VcVFnwQ1/znnYJfeUtqbHaoYLGoIg94dzfheVartZBVr9ELUJcaVzWlJAzz\nG2hQe8az2EvcMeUVp65G/5WHoRD7JtzJ2dxGPR4kM30ic64uCYnpHayK7Jq6tTee\nw3n1aXl3za1ScouQapwFJNzT8kX9bVAPqyLNv55TSQKBgQD2k/swm3n17LPJuXPB\J3hDCKnUh6XLPcLQxXwBndO+qw2tZ1UmhU/ys5XzRwIRWz3ppNNADYgi/lK6mUsE\n/APjyfd8l+OC2qdE08Tn7rEIW7g9I/sd/t2GQM1Jz1c/LMpoSwlmx9k0S7fP355f\n7Pc5H8gdHC+OfkphW0HNvU8BgwKBgQDzH0D8FDkD9b+6grrGgdYNqZXbFiFEI5uU\n14nlLyw0qg8DMHstk6T6Ny9BeUd2cMn6St4amC0eudu9qjCxI0mibvhSl+fCZG00\n3pdBYTMbGGGtyaOCvHgIz+q0XW8qVp1avBi0nSNBNGNX5VvrmIhvG6rP/GqLmiMb\n41TuvDo1GQKBgQDirbfGP6gnBKtjTzGy5+4O8e/uiaVI6kYmVuZhNg5qwiWYu93z\nw6pzm9TGCQlFm3OXTwdFYys7wEGdeT8WHfgVeJ4j1B47NXeANo5WCYCGBoug6Wr5\ncEuGGByhNhMm6K5KonDKI/7xrIoWd6TI2reLtEPrPvYZMNCAH7ymvtnasQKBgQCB\nAhyhprl6eHT8q1Ig89R5+3shfmS4m4x7NsRdcOKsL3E36An07VulypKw04IwPzlu\nLzwcMJQAse8AfcbIuEjigLAUY7b/V/r7CwKIFuPfhNiQN2ckgI3RX0LT4qCSftOQ\nyi7x6FBE0V/FzFcydQYwryW8p9yBp5Dpw3/WDtt0QQKBgQDzVpHxoUcfgeh7eUJz\ngwZ5UOknarjZ2DlSrgV5d3RCiEIj+zdWodSs91zKRt9W3p4ppBzQGijhkFIjJXBx\nPCOBFm4hX84e0ixisHjctFV8ykNa1Wxp8oVIImRnD2XlS2ABTYFL56rYp/1Uzp7/\n3Xn2wvoSnhDnr4K85bG/eEkdLg==\n-----END PRIVATE KEY-----\n",
+  key: "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n", // Gunakan private key asli Anda
   scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
@@ -19,7 +19,7 @@ export async function appendToSheet(data) {
       Kategori: data.category || 'Lainnya',
       Jumlah: Math.abs(data.amount || 0),
       Akun: (data.account || 'Cash').toUpperCase(),
-      Keterangan: (data.tag ? `[#${data.tag}] ` : '') + (data.note || '')
+      Keterangan: data.note || '-'
     });
   } catch (e) { console.error("Sheet Error:", e.message); }
 }
