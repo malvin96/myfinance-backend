@@ -10,8 +10,7 @@ import { CATEGORIES } from "./categories.js";
 
 const app = express();
 app.get("/", (req, res) => res.send("Bot MaYo Aktif"));
-const port = process.env.PORT || 3000;
-app.listen(port);
+app.listen(process.env.PORT || 3000);
 
 initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
@@ -20,7 +19,6 @@ const LIQUID = ["cash", "bca", "ovo", "gopay", "shopeepay"];
 
 const pendingTxs = {};
 
-// --- AUTO BACKUP 23:59 WIB ---
 cron.schedule('59 23 * * *', async () => {
   const date = new Date().toISOString().slice(0, 10);
   const file = `myfinance_backup_${date}.db`;
@@ -33,7 +31,6 @@ cron.schedule('59 23 * * *', async () => {
   } catch (e) { console.error(e); }
 }, { timezone: "Asia/Jakarta" });
 
-// Reminder CC 21:00
 setInterval(() => {
   const now = new Date();
   if (now.getHours() === 21 && now.getMinutes() === 0) {
@@ -105,13 +102,27 @@ async function handleMessage(msg) {
         fs.copyFileSync('myfinance.db', file);
         await sendDocument(chatId, file, `✅ **BACKUP SELESAI**`);
         fs.unlinkSync(file);
-      } else if (p.type === "koreksi") {
-        const del = deleteLastTx(p.user);
-        replies.push(del ? `🗑️ *KOREKSI BERHASIL*\nDihapus: "${del.note}"` : "❌ Kosong.");
       } else if (p.type === "set_saldo") {
         resetAccountBalance(p.user, p.account);
         addTx({ ...p, category: "Saldo Awal" });
-        replies.push(`💰 *SET SALDO ${p.account.toUpperCase()} BERHASIL*`);
+        const d = getRekapLengkap();
+        const userRows = d.rows.filter(r => r.user === p.user);
+        const liq = userRows.filter(r => LIQUID.includes(r.account));
+        const ast = userRows.filter(r => !LIQUID.includes(r.account) && r.account !== 'cc');
+        const totalLiq = liq.reduce((a, b) => a + b.balance, 0);
+        const totalAst = ast.reduce((a, b) => a + b.balance, 0);
+        let out = `💰 **SET SALDO ${p.account.toUpperCase()} (${p.user === 'M' ? '🧔' : '👩'}) - ${fmt(p.amount)}**\n${line}\n`;
+        if (liq.length > 0) {
+          out += `💧 *Liquid*\n`;
+          liq.forEach(a => out += ` ├ \`${a.account.toUpperCase().padEnd(10)}\`: \`${fmt(a.balance).padStart(14)}\`\n`);
+          out += ` └ *Total Liquid:* \`${fmt(totalLiq).padStart(13)}\`\n\n`;
+        }
+        if (ast.length > 0) {
+          out += `💰 *Assets*\n`;
+          ast.forEach(a => out += ` ├ \`${a.account.toUpperCase().padEnd(10)}\`: \`${fmt(a.balance).padStart(14)}\`\n`);
+          out += ` └ *Total Assets:* \`${fmt(totalAst).padStart(13)}\`\n`;
+        }
+        replies.push(out);
       } else if (p.type === "transfer_akun") {
         addTx({ ...p, account: p.from, amount: -p.amount, category: "Transfer" });
         addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer" });
@@ -122,7 +133,7 @@ async function handleMessage(msg) {
           replies.push(`❓ *KATEGORI TIDAK DIKENAL*\nUntuk: "${p.note}"\n\nPilih kategori:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}`);
         } else {
           addTx(p);
-          replies.push(`${p.amount > 0 ? "📈" : "📉"} *${p.category.toUpperCase()}*\n└ \`${fmt(Math.abs(p.amount))}\` (${p.user} | ${p.account.toUpperCase()})`);
+          replies.push(`${p.amount > 0 ? "📈" : "kses"} *${p.category.toUpperCase()}*\n└ \`${fmt(Math.abs(p.amount))}\` (${p.user} | ${p.account.toUpperCase()})`);
           appendToSheet(p).catch(console.error);
         }
       }
