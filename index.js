@@ -51,7 +51,7 @@ async function handleMessage(msg) {
       delete pendingTxs[chatId];
       return "❌ Transaksi dibatalkan.";
     } else {
-      return `⚠️ Kategori *'${text}'* tidak ditemukan.\n\nBalas dengan salah satu:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}\n\nAtau ketik *'batal'*.`;
+      return `⚠️ Kategori *'${text}'* tidak ditemukan.\n\nPilih kategori:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}\n\nAtau ketik *'batal'*.`;
     }
   }
 
@@ -136,7 +136,7 @@ async function handleMessage(msg) {
       } else if (p.type === "tx") {
         if (p.category === "Lainnya") {
           pendingTxs[chatId] = p;
-          replies.push(`❓ *KATEGORI TIDAK DIKENAL*\nUntuk: "${p.note}"\n\nPilih kategori:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}\n\n_Ketik 'batal' untuk batal._`);
+          replies.push(`❓ *KATEGORI TIDAK DIKENAL*\nUntuk: "${p.note}"\n\nPilih kategori:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}\n\n_Ketik 'batal'._`);
         } else {
           addTx(p);
           let msgReply = `${p.amount > 0 ? "📈" : "📉"} *${p.category.toUpperCase()}*\n└ \`${fmt(Math.abs(p.amount))}\` (${p.user} | ${p.account.toUpperCase()})`;
