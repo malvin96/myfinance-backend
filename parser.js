@@ -30,24 +30,32 @@ function parseLine(text, senderId) {
 
   if (cmd === "koreksi" || cmd === "batal") return { type: "koreksi", user };
   if (cmd === "rekap" || cmd === "saldo") return { type: "rekap" };
-  
+  if (cmd === "cek tagihan") return { type: "list_reminder" };
+
   if (cmd.startsWith("tagihan ")) {
     const parts = cmd.split(" ");
     return { type: "add_reminder", dueDate: parseInt(parts[1]), note: parts.slice(2).join(" ") };
   }
-  
+
   if (cmd.startsWith("cc ")) {
     return { type: "tx", user, account: "cc", amount: -extractAmount(cmd), category: detectCategory(cmd).category, note: cleanText };
   }
-  
+
   if (cmd.startsWith("lunas cc")) {
     const bank = ACCOUNTS.find(a => cmd.includes(a) && a !== "cc") || "bca";
     return { type: "transfer_akun", user, from: bank, to: "cc", amount: extractAmount(cmd) };
   }
-  
+
   if (cmd.includes("set saldo")) {
     const acc = ACCOUNTS.find(a => cmd.includes(a)) || "cash";
     return { type: "set_saldo", user, account: acc, amount: extractAmount(cmd) };
+  }
+
+  if (cmd.startsWith("pindah ")) {
+    const amount = extractAmount(cmd);
+    const from = ACCOUNTS.find(a => cmd.includes(a)) || "bca";
+    const to = ACCOUNTS.filter(a => a !== from).find(a => cmd.includes(a)) || "cash";
+    return { type: "transfer_akun", user, from, to, amount };
   }
 
   let amount = extractAmount(cmd);
