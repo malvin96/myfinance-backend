@@ -1,73 +1,94 @@
-import { detectCategory } from "./categories.js";
+import express from "express";
+import { pollUpdates, sendMessage } from "./telegram.js";
+import { parseInput } from "./parser.js";
+import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, addReminder, getReminders, deleteLastTx, resetAccountBalance } from "./db.js";
+import { appendToSheet } from "./sheets.js";
 
-const ACCOUNTS = ["cash", "bca", "ovo", "gopay", "shopeepay", "bibit", "emas", "mirrae", "bca sekuritas", "cc"];
+const app = express();
+app.get("/", (req, res) => res.send("Bot Aktif"));
+app.listen(process.env.PORT || 3000);
 
-function extractAmount(t) {
-  const m = t.match(/([\d.,]+)\s*(k|rb|ribu|jt|juta)?/i);
-  if (!m) return 0;
-  let val = m[1].replace(/\./g, '').replace(',', '.');
-  val = parseFloat(val) || 0;
-  const unit = (m[2] || "").toLowerCase();
-  if (["k", "rb", "ribu"].includes(unit)) val *= 1000;
-  if (["jt", "juta"].includes(unit)) val *= 1000000;
-  return val;
+initDB();
+const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
+const line = "━━━━━━━━━━━━━━━━━━";
+
+// Reminder CC Jam 21:00
+setInterval(() => {
+  const now = new Date();
+  if (now.getHours() === 21 && now.getMinutes() === 0) {
+    const cc = getTotalCCHariIni();
+    if (cc && cc.total < 0) {
+      const msg = `🔔 *REMINDER PELUNASAN CC*\n${line}\nTotal CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa dilunasi malam ini! 💳`;
+      sendMessage(5023700044, msg); 
+    }
+  }
+}, 60000);
+
+async function handleMessage(msg) {
+  const senderId = msg.from.id;
+  if (![5023700044, 8469259152].includes(senderId)) return;
+
+  const results = parseInput(msg.text, senderId);
+  if (!results.length) return;
+
+  // Laporan Rekap dengan UI Baru
+  if (results.length === 1 && results[0].type === "rekap") {
+    const d = getRekapLengkap();
+    const cc = getTotalCCHariIni();
+    let out = `📊 *REKAP KEUANGAN KELUARGA*\n${line}\n`;
+    
+    const users = [...new Set(d.rows.map(r => r.user))];
+    users.forEach(u => {
+      const userName = u === 'M' ? '🧔 MALVIN' : '👩 YOVITA';
+      out += `\n*${userName}*\n`;
+      const userAccounts = d.rows.filter(r => r.user === u);
+      let userTotal = 0;
+      userAccounts.forEach(a => {
+        if(a.account !== 'cc') {
+          out += ` ├ ${a.account.toUpperCase().padEnd(12)}: \`${fmt(a.balance)}\`\n`;
+          userTotal += a.balance;
+        }
+      });
+      out += ` └ *Subtotal:* \`${fmt(userTotal)}\`\n`;
+    });
+
+    out += `\n💳 *TRANSAKSI CC (HARI INI)*\n └ Belum Lunas: \`${fmt(Math.abs(cc.total || 0))}\`\n`;
+    out += `\n${line}\n💰 *TOTAL KEKAYAAN GABUNGAN*\n👉 *${fmt(d.totalWealth)}*`;
+    return out;
+  }
+
+  let replies = [];
+  for (let p of results) {
+    try {
+      if (p.type === "koreksi") {
+        const del = deleteLastTx(p.user);
+        replies.push(del ? `🗑️ *KOREKSI BERHASIL*\nDihapus: "${del.note}" (${fmt(Math.abs(del.amount))})` : "❌ Tidak ada transaksi.");
+      } else if (p.type === "set_saldo") {
+        // Reset dulu baru tambah (Overwrite)
+        resetAccountBalance(p.user, p.account);
+        addTx({ ...p, category: "Saldo Awal" });
+        appendToSheet(p).catch(e => console.error("Sheet Error:", e.message));
+        replies.push(`💰 Saldo ${p.account.toUpperCase()} diset: \`${fmt(p.amount)}\``);
+      } else if (p.type === "tx") {
+        addTx(p);
+        appendToSheet(p).catch(e => console.error("Sheet Error:", e.message));
+        const emoji = p.amount > 0 ? "📈" : "📉";
+        replies.push(`${emoji} *${p.category.toUpperCase()}*\n└ \`${fmt(Math.abs(p.amount))}\` (${p.user} | ${p.account.toUpperCase()})`);
+      } else if (p.type === "transfer_akun") {
+        addTx({ ...p, account: p.from, amount: -p.amount, category: "Transfer" });
+        addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer" });
+        appendToSheet(p).catch(e => console.error("Sheet Error:", e.message));
+        replies.push(`🔄 *TRANSFER BERHASIL*\n└ \`${fmt(p.amount)}\` (${p.from.toUpperCase()} ➔ ${p.to.toUpperCase()})`);
+      } else if (p.type === "add_reminder") {
+        addReminder(p.note, p.dueDate);
+        replies.push(`🔔 Reminder disimpan: *${p.note}* tgl ${p.dueDate}`);
+      }
+    } catch (e) {
+      console.error(e);
+      replies.push("❌ Error saat memproses.");
+    }
+  }
+  return replies.join('\n\n');
 }
 
-export function parseInput(text, senderId) {
-  if (!text) return [];
-  return text.split('\n').filter(l => l.trim()).map(line => parseLine(line, senderId));
-}
-
-function parseLine(text, senderId) {
-  const rawLower = text.toLowerCase().trim();
-  let user = (senderId === 8469259152) ? "Y" : "M";
-  let cleanText = text;
-
-  if (rawLower.startsWith("y ")) { user = "Y"; cleanText = text.substring(2).trim(); }
-  else if (rawLower.startsWith("m ")) { user = "M"; cleanText = text.substring(2).trim(); }
-
-  const cmd = cleanText.toLowerCase();
-
-  if (cmd === "koreksi" || cmd === "batal") return { type: "koreksi", user };
-  if (cmd === "rekap" || cmd === "saldo") return { type: "rekap" };
-  if (cmd === "cek tagihan") return { type: "list_reminder" };
-
-  if (cmd.startsWith("tagihan ")) {
-    const parts = cmd.split(" ");
-    return { type: "add_reminder", dueDate: parseInt(parts[1]), note: parts.slice(2).join(" ") };
-  }
-
-  if (cmd.startsWith("cc ")) {
-    return { type: "tx", user, account: "cc", amount: -extractAmount(cmd), category: detectCategory(cmd).category, note: cleanText };
-  }
-
-  if (cmd.startsWith("lunas cc")) {
-    const bank = ACCOUNTS.find(a => cmd.includes(a) && a !== "cc") || "bca";
-    return { type: "transfer_akun", user, from: bank, to: "cc", amount: extractAmount(cmd) };
-  }
-
-  if (cmd.includes("set saldo")) {
-    const acc = ACCOUNTS.find(a => cmd.includes(a)) || "cash";
-    return { type: "set_saldo", user, account: acc, amount: extractAmount(cmd) };
-  }
-
-  if (cmd.startsWith("pindah ")) {
-    const amount = extractAmount(cmd);
-    const from = ACCOUNTS.find(a => cmd.includes(a)) || "bca";
-    const to = ACCOUNTS.filter(a => a !== from).find(a => cmd.includes(a)) || "cash";
-    return { type: "transfer_akun", user, from, to, amount };
-  }
-
-  let amount = extractAmount(cmd);
-  if (cmd.includes("kembali")) {
-    const parts = cmd.split("kembali");
-    amount = extractAmount(parts[0]) - extractAmount(parts[1]);
-  }
-
-  const account = ACCOUNTS.find(a => cmd.includes(a)) || "cash";
-  return {
-    type: "tx", user, account,
-    amount: (cmd.includes("gaji") || cmd.includes("masuk")) ? amount : -amount,
-    category: detectCategory(cmd).category, note: cleanText
-  };
-}
+pollUpdates(handleMessage);
