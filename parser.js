@@ -4,7 +4,6 @@ function parseAmount(str) {
   let num = parseFloat(str.replace(/[k|jt|rb]/g, ''));
   if (str.includes('k') || str.includes('rb')) num *= 1000;
   else if (str.includes('jt')) num *= 1000000;
-  // Unit 'm' dihapus sesuai permintaan
   return num;
 }
 
