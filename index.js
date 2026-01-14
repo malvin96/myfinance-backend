@@ -2,7 +2,7 @@ import express from "express";
 import fs from 'fs';
 import { pollUpdates, sendMessage, sendDocument } from "./telegram.js";
 import { parseInput } from "./parser.js";
-import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, resetAccountBalance, setBudget, getBudgetStatus, getChartData, getBudgetSummary, getFilteredTransactions, deleteLastTx } from "./db.js";
+import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, resetAccountBalance, setBudget, getBudgetStatus, getChartData, getBudgetSummary, getFilteredTransactions, getCashflowSummary, deleteLastTx } from "./db.js";
 import { createPDF } from "./export.js";
 import { appendToSheet } from "./sheets.js";
 
@@ -20,7 +20,7 @@ setInterval(() => {
   if (now.getHours() === 21 && now.getMinutes() === 0) {
     const cc = getTotalCCHariIni();
     if (cc && cc.total < 0) {
-      sendMessage(5023700044, `🔔 *REMINDER CC*\n${line}\nTagihan CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa dilunasi! 💳`); 
+      sendMessage(5023700044, `🔔 *REMINDER CC*\n${line}\nTagihan CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa dilunasi malam ini! 💳`); 
     }
   }
 }, 60000);
@@ -36,10 +36,12 @@ async function handleMessage(msg) {
     const catData = getChartData();
     const budgets = getBudgetSummary();
     const cc = getTotalCCHariIni();
+    const cf = getCashflowSummary();
     
     let out = `📊 *LAPORAN KEUANGAN KELUARGA*\n${line}\n`;
     const users = [...new Set(d.rows.map(r => r.user))];
 
+    // 1. Seksi Saldo (Liquid vs Asset)
     users.forEach(u => {
       out += `\n*${u === 'M' ? '🧔 MALVIN' : '👩 YOVITA'}*\n`;
       const liquid = d.rows.filter(r => r.user === u && LIQUID_ACCOUNTS.includes(r.account));
@@ -56,6 +58,16 @@ async function handleMessage(msg) {
       out += ` └ *Total Net:* \`${fmt(userTotal).padStart(13)}\`\n`;
     });
 
+    // 2. Seksi Cashflow (Fitur Baru)
+    const netSavings = cf.income - cf.expense;
+    const savingRate = cf.income > 0 ? Math.round((netSavings / cf.income) * 100) : 0;
+    out += `\n📈 *CASHFLOW BULAN INI*\n`;
+    out += ` 📥 *In* : \`${fmt(cf.income).padStart(13)}\`\n`;
+    out += ` 📤 *Out* : \`${fmt(cf.expense).padStart(13)}\`\n`;
+    out += ` 💰 *Net* : \`${fmt(netSavings).padStart(13)}\`\n`;
+    out += ` 🔄 *Rate*: \`${savingRate}% Saving Rate\`\n`;
+
+    // 3. Seksi Budget
     if (budgets.length > 0) {
       out += `\n🎯 *RINGKASAN BUDGET*\n`;
       budgets.forEach(b => {
@@ -105,7 +117,7 @@ async function handleMessage(msg) {
         replies.push(msgReply);
       }
       appendToSheet(p).catch(e => console.error(e));
-    } catch (e) { replies.push("❌ Terjadi kesalahan teknis."); }
+    } catch (e) { replies.push("❌ Terjadi kesalahan."); }
   }
   return replies.join('\n\n');
 }
