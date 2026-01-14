@@ -32,7 +32,6 @@ export function deleteLastTx(user) {
   return last;
 }
 
-// Fungsi Budgeting
 export function setBudget(category, amount) {
   return db.prepare("INSERT OR REPLACE INTO budgets (category, amount) VALUES (?, ?)").run(category, amount);
 }
@@ -44,21 +43,14 @@ export function getBudgetStatus(category) {
   return { limit: budget.amount, spent: Math.abs(spent.total || 0) };
 }
 
-// Data untuk Charts
 export function getChartData() {
-  const categories = db.prepare("SELECT category, ABS(SUM(amount)) as total FROM transactions WHERE amount < 0 AND strftime('%m', timestamp) = strftime('%m', 'now') GROUP BY category").all();
-  const cashflow = db.prepare("SELECT SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as income, SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) as expense FROM transactions WHERE strftime('%m', timestamp) = strftime('%m', 'now')").get();
-  return { categories, cashflow };
+  return db.prepare("SELECT category, ABS(SUM(amount)) as total FROM transactions WHERE amount < 0 AND strftime('%m', timestamp) = strftime('%m', 'now') GROUP BY category").all();
 }
 
 export function getRekapLengkap() {
   const rows = db.prepare("SELECT user, account, SUM(amount) as balance FROM transactions GROUP BY user, account HAVING balance != 0 ORDER BY user ASC, balance DESC").all();
   const totalWealth = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account != 'cc'").get();
   return { rows, totalWealth: totalWealth.total || 0 };
-}
-
-export function getAllTransactions() {
-  return db.prepare("SELECT * FROM transactions ORDER BY timestamp DESC").all();
 }
 
 export function getTotalCCHariIni() {
