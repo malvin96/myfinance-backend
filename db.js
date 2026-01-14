@@ -25,6 +25,12 @@ export function addTx(p) {
   return stmt.run(p.user, p.account, p.amount, p.category, p.note);
 }
 
+// Fitur Baru: Reset saldo akun agar tidak double
+export function resetAccountBalance(user, account) {
+  const stmt = db.prepare("DELETE FROM transactions WHERE user = ? AND account = ?");
+  return stmt.run(user, account);
+}
+
 export function deleteLastTx(user) {
   const last = db.prepare("SELECT id, note, amount FROM transactions WHERE user = ? ORDER BY id DESC LIMIT 1").get(user);
   if (last) {
@@ -35,9 +41,6 @@ export function deleteLastTx(user) {
 }
 
 export function getRekapLengkap() {
-  const startOfMonth = "date('now', 'start of month')";
-  
-  // Saldo per User dan per Akun
   const rows = db.prepare(`
     SELECT user, account, SUM(amount) as balance 
     FROM transactions 
@@ -46,7 +49,6 @@ export function getRekapLengkap() {
     ORDER BY user ASC, balance DESC
   `).all();
 
-  // Total Kekayaan (Tanpa CC)
   const totalWealth = db.prepare(`
     SELECT SUM(amount) as total 
     FROM transactions 
@@ -57,7 +59,8 @@ export function getRekapLengkap() {
 }
 
 export function getTotalCCHariIni() {
-  return db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account = 'cc' AND amount < 0 AND date(timestamp) = date('now', 'localtime')").get();
+  const row = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account = 'cc' AND amount < 0 AND date(timestamp) = date('now', 'localtime')").get();
+  return row || { total: 0 };
 }
 
 export function addReminder(note, dueDate) {
