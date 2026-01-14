@@ -11,7 +11,7 @@ export async function sendMessage(chatId, text) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId, text: text, parse_mode: "Markdown" }),
     });
-  } catch (error) { console.error("Error Telegram SendMessage:", error); }
+  } catch (error) { console.error("Error Telegram:", error); }
 }
 
 export async function sendDocument(chatId, filePath) {
@@ -20,7 +20,7 @@ export async function sendDocument(chatId, filePath) {
     form.append('chat_id', chatId);
     form.append('document', fs.createReadStream(filePath));
     await fetch(`${TELEGRAM_API}/sendDocument`, { method: "POST", body: form });
-  } catch (error) { console.error("Error Telegram SendDocument:", error); }
+  } catch (error) { console.error("Error Telegram PDF:", error); }
 }
 
 export async function pollUpdates(handleMessage) {
