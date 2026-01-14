@@ -14,7 +14,6 @@ export async function createPDF(data, title = "LAPORAN KEUANGAN") {
       doc.fontSize(10).font('Helvetica').text(`Dicetak: ${new Date().toLocaleString('id-ID')}`, { align: 'center' });
       doc.moveDown();
 
-      // Header Tabel
       doc.fontSize(9).font('Helvetica-Bold');
       const head = `TANGGAL`.padEnd(14) + `USER`.padEnd(6) + `AKUN`.padEnd(10) + `KATEGORI`.padEnd(14) + `NOMINAL`.padEnd(14) + `NOTE`;
       doc.text(head);
