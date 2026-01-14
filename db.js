@@ -48,21 +48,41 @@ export function getBudgetSummary() {
   });
 }
 
-export function getChartData() {
-  return db.prepare("SELECT category, ABS(SUM(amount)) as total FROM transactions WHERE amount < 0 AND strftime('%m', timestamp) = strftime('%m', 'now') GROUP BY category").all();
-}
-
 export function getRekapLengkap() {
   const rows = db.prepare("SELECT user, account, SUM(amount) as balance FROM transactions GROUP BY user, account HAVING balance != 0 ORDER BY user ASC, balance DESC").all();
   const totalWealth = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account != 'cc'").get();
   return { rows, totalWealth: totalWealth.total || 0 };
 }
 
-export function getAllTransactions() {
-  return db.prepare("SELECT timestamp, user, account, category, amount, note FROM transactions ORDER BY timestamp DESC").all();
+export function getChartData() {
+  return db.prepare("SELECT category, ABS(SUM(amount)) as total FROM transactions WHERE amount < 0 AND strftime('%m', timestamp) = strftime('%m', 'now') GROUP BY category").all();
 }
 
 export function getTotalCCHariIni() {
   const res = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account = 'cc' AND amount < 0 AND date(timestamp) = date('now', 'localtime')").get();
   return res || { total: 0 };
+}
+
+// FUNGSI UTAMA UNTUK FILTER PDF
+export function getFilteredTransactions(filter) {
+  let query = "SELECT timestamp, user, account, category, amount, note FROM transactions";
+  let params = [];
+
+  if (filter.type === 'day') {
+    query += " WHERE date(timestamp) = date(?)";
+    params.push(filter.val);
+  } else if (filter.type === 'month') {
+    query += " WHERE strftime('%m-%Y', timestamp) = ?";
+    params.push(filter.val);
+  } else if (filter.type === 'week') {
+    query += " WHERE timestamp >= date('now', '-7 days')";
+  } else if (filter.type === 'all') {
+    // No WHERE clause
+  } else {
+    // Default: Bulan Berjalan
+    query += " WHERE strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')";
+  }
+
+  query += " ORDER BY timestamp DESC";
+  return db.prepare(query).all(...params);
 }
