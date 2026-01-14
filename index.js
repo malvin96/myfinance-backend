@@ -62,7 +62,7 @@ async function handleMessage(msg) {
       if (p.category === "Pendapatan") p.amount = Math.abs(p.amount);
       delete pendingTxs[chatId]; addTx(p); appendToSheet(p).catch(console.error);
       return `✅ *TERCATAT DI ${p.category.toUpperCase()}*\n└ \`${fmt(Math.abs(p.amount))}\` (${p.user} | ${p.account.toUpperCase()})`;
-    } else if (text === "batal") { delete pendingTxs[chatId]; return "❌ Dibatalkan."; }
+    } else if (text === "batal") { delete pendingTxs[chatId]; return "❌ Transaksi dibatalkan."; }
     else { return `⚠️ Pilih kategori:\n${CATEGORIES.map(c => `• \`${c.cat.toLowerCase()}\``).join('\n')}`; }
   }
 
@@ -109,7 +109,7 @@ async function handleMessage(msg) {
       budgets.forEach(b => out += ` ${b.spent > b.limit ? '🔴' : '🟢'} *${b.category}*: \`${fmt(b.limit - b.spent)}\` sisa\n`);
     }
 
-    out += `\n💳 *CC HARI INI:* \`${fmt(Math.abs(cc.total || 0))}\`\n${line}\n🌍 *NET WORTH:* *${fmt(d.totalWealth)}*\n`;
+    out += `\n💳 *CC HARI INI:* \`${fmt(Math.abs(cc.total || 0))}\`\n${line}\n🌍 *NET WORTH:* **${fmt(d.totalWealth)}**\n`;
     return out;
   }
 
