@@ -1,7 +1,5 @@
 import { detectCategory } from "./categories.js";
 
-const MONTHS = { jan: "01", feb: "02", mar: "03", apr: "04", mei: "05", jun: "06", jul: "07", agu: "08", sep: "09", okt: "10", nov: "11", des: "12" };
-
 function parseAmount(str) {
   let num = parseFloat(str.replace(/[k|m|jt|rb]/g, ''));
   if (str.includes('k') || str.includes('rb')) num *= 1000;
@@ -26,12 +24,10 @@ export function parseInput(text, senderId) {
     if (line === 'list' || line === 'help' || line === '?') { results.push({ type: 'list' }); continue; }
     if (line === 'rekap' || line === 'saldo') { results.push({ type: 'rekap' }); continue; }
     if (line === 'koreksi' || line === 'undo') { results.push({ type: 'koreksi', user }); continue; }
-
+    
     if (line.startsWith('export pdf')) {
-      const sub = line.replace("export pdf", "").trim();
-      if (!sub) { results.push({ type: "export_pdf", filter: { type: 'current', title: "Laporan Bulan Berjalan" } }); continue; }
-      // Logika bulan/tahun lainnya tetap sama...
-      results.push({ type: "export_pdf", filter: { type: 'current', title: "Laporan" } }); continue;
+      results.push({ type: 'export_pdf', filter: { title: 'Laporan Bulanan' } });
+      continue;
     }
 
     const mSaldo = line.match(/^set saldo (\w+) (\d+[k|m|jt|rb]*)$/);
@@ -39,16 +35,23 @@ export function parseInput(text, senderId) {
 
     const mPindah = line.match(/^pindah (\d+[k|m|jt|rb]*) (\w+) (\w+)$/);
     if (mPindah) {
-      results.push({ type: 'transfer_akun', user, amount: parseAmount(mPindah[1]), from: mPindah[2], to: mPindah[3], note: `Pindah ${mPindah[2]} ke ${mPindah[3]}` });
+      results.push({ 
+        type: 'transfer_akun', 
+        user, 
+        amount: parseAmount(mPindah[1]), 
+        from: mPindah[2], 
+        to: mPindah[3], 
+        note: `Pindah ${mPindah[2]} ke ${mPindah[3]}` 
+      });
       continue;
     }
 
     const mTx = line.match(/^(\d+[k|m|jt|rb]*) (.+?) (\w+)$/);
     if (mTx) {
       const amountRaw = parseAmount(mTx[1]);
-      const catObj = detectCategory(mTx[2]);
-      const isIncome = catObj.category === "Pendapatan";
-      results.push({ type: 'tx', user, account: mTx[3], amount: isIncome ? amountRaw : -amountRaw, category: catObj.category, note: mTx[2] });
+      const category = detectCategory(mTx[2]);
+      const amount = (category === "Pendapatan") ? Math.abs(amountRaw) : -Math.abs(amountRaw);
+      results.push({ type: 'tx', user, amount, note: mTx[2], account: mTx[3], category });
     }
   }
   return results;
