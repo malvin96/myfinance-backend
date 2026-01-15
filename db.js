@@ -22,9 +22,13 @@ export function resetAccountBalance(user, account) {
 }
 
 export function deleteLastTx(user) {
-  const last = db.prepare("SELECT id, note, amount FROM transactions WHERE user = ? ORDER BY id DESC LIMIT 1").get(user);
-  if (last) db.prepare("DELETE FROM transactions WHERE id = ?").run(last.id);
-  return last;
+  // Ambil transaksi terakhir
+  const last = db.prepare("SELECT * FROM transactions WHERE user = ? ORDER BY id DESC LIMIT 1").get(user);
+  if (last) {
+    // Hapus dari DB
+    db.prepare("DELETE FROM transactions WHERE id = ?").run(last.id);
+  }
+  return last; // Kembalikan data yang dihapus agar bisa diproses index.js
 }
 
 export function getBudgetSummary() {
