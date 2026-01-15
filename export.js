@@ -5,19 +5,17 @@ export async function createPDF(data, title = "LAPORAN KEUANGAN") {
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({ margin: 30, size: 'A4' });
-      const safeTitle = title.replace(/\s+/g, '_');
-      const fileName = `${safeTitle}_${new Date().toISOString().slice(0, 10)}.pdf`;
+      const fileName = `Laporan_${new Date().toISOString().slice(0, 10)}.pdf`;
       const stream = fs.createWriteStream(fileName);
       doc.pipe(stream);
-      doc.fontSize(18).font('Helvetica-Bold').text(title.toUpperCase(), { align: 'center' });
-      doc.fontSize(10).font('Helvetica').text(`Dicetak: ${new Date().toLocaleString('id-ID')}`, { align: 'center' });
+
+      doc.fontSize(18).text(title, { align: 'center' });
       doc.moveDown();
-      doc.fontSize(9).font('Helvetica-Bold');
-      doc.text(`TANGGAL`.padEnd(14) + `USER`.padEnd(6) + `AKUN`.padEnd(10) + `KATEGORI`.padEnd(14) + `NOMINAL`.padEnd(14) + `NOTE`);
-      doc.text('-'.repeat(105));
-      doc.moveDown(0.5).font('Helvetica');
-      if (data.length === 0) doc.text("Tidak ada data.", { align: 'center' });
-      else data.forEach(r => doc.fontSize(8).text(`${r.timestamp.slice(0, 10).padEnd(14)} ${r.user.padEnd(5)} ${r.account.toUpperCase().padEnd(9)} ${r.category.padEnd(13)} ${Math.round(r.amount).toLocaleString('id-ID').padEnd(13)} ${r.note || '-'}`));
+      
+      data.forEach(r => {
+        doc.fontSize(10).text(`${r.timestamp.slice(0,10)} | ${r.category} | ${r.note} | ${Math.round(r.amount)}`);
+      });
+
       doc.end();
       stream.on('finish', () => resolve(fileName));
     } catch (err) { reject(err); }
