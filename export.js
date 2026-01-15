@@ -14,7 +14,7 @@ export async function createPDF(data, title = "LAPORAN KEUANGAN") {
       doc.fontSize(10).font('Helvetica').text(`Generated: ${new Date().toLocaleString('id-ID')}`, { align: 'center' });
       doc.moveDown();
 
-      // BAGIAN 1: SALDO (BALANCE SHEET)
+      // SALDO (AI FRIENDLY - DI ATAS)
       doc.fontSize(12).font('Helvetica-Bold').text('I. POSISI SALDO SAAT INI', { underline: true });
       doc.moveDown(0.5);
       doc.fontSize(9).font('Courier-Bold').text("USER     | AKUN      | SALDO (RP)");
@@ -33,7 +33,7 @@ export async function createPDF(data, title = "LAPORAN KEUANGAN") {
       doc.font('Courier-Bold').text(`TOTAL NET WORTH: Rp ${Math.round(rekap.totalWealth).toLocaleString('id-ID')}`);
       doc.moveDown(2);
 
-      // BAGIAN 2: TRANSAKSI
+      // TRANSAKSI
       doc.font('Helvetica-Bold').fontSize(12).text('II. RINCIAN TRANSAKSI', { underline: true });
       doc.moveDown(0.5);
       doc.fontSize(9).font('Courier-Bold').text("TANGGAL    | USER | AKUN      | KATEGORI   | NOMINAL     | CATATAN");
