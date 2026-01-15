@@ -23,32 +23,11 @@ export function parseInput(text, senderId) {
 
     const cmd = line.split(' ')[0];
 
-    // --- COMMANDS (ANTI TYPO) ---
-    if (/^(rekap|rkap|rekp|reakp|saldo|sldo|sld|cek|balance)$/.test(cmd)) { 
-      results.push({ type: 'rekap' }); continue; 
-    }
-    if (/^(history|hist|riwayat|list|ls)$/.test(cmd)) {
-      const limitMatch = line.match(/\d+/); 
-      const limit = limitMatch ? parseInt(limitMatch[0]) : 10;
-      results.push({ type: 'history', limit }); continue; 
-    }
-    if (/^(koreksi|undo|batal|hapus|del|cancel)$/.test(line)) { 
-      results.push({ type: 'koreksi', user }); continue; 
-    }
-    if (/^(backup|db|unduh)$/.test(line)) { 
-      results.push({ type: 'backup' }); continue; 
-    }
-    if (/^(help|menu|list|tolong|\?)$/.test(line)) { 
-      results.push({ type: 'list' }); continue; 
-    }
-
-    // --- PDF EXPORT ---
+    // --- PDF EXPORT (Prioritas Tinggi) ---
     if (line.startsWith('export pdf') || line.startsWith('pdf')) { 
       let filter = { type: 'current', title: 'Laporan Bulanan', val: null };
       if (line.includes('hari') || line.includes('daily')) {
         filter = { type: 'day', title: 'Laporan Harian', val: new Date().toISOString().slice(0, 10) };
-      } else if (line.includes('minggu') || line.includes('week')) {
-        filter = { type: 'week', title: 'Laporan 7 Hari Terakhir', val: null };
       } else if (line.match(/\d{4}-\d{2}/)) { 
         const mDate = line.match(/(\d{4}-\d{2})/)[1];
         filter = { type: 'month', title: `Laporan ${mDate}`, val: mDate };
@@ -56,11 +35,42 @@ export function parseInput(text, senderId) {
       results.push({ type: 'export_pdf', filter }); continue; 
     }
 
-    // --- SET SALDO & TRANSFER ---
+    // --- REKAP / SALDO ---
+    if (/^(rekap|rkap|rekp|reakp|saldo|sldo|sld|cek|balance)$/.test(cmd)) { 
+      results.push({ type: 'rekap' }); continue; 
+    }
+
+    // --- HISTORY / RIWAYAT ---
+    // Menerima: "history", "riwayat", "hist", "list tx"
+    if (/^(history|hist|riwayat)$/.test(cmd) || line.startsWith('list tx')) {
+      const limitMatch = line.match(/\d+/); 
+      const limit = limitMatch ? parseInt(limitMatch[0]) : 10;
+      results.push({ type: 'history', limit }); continue; 
+    }
+
+    // --- MENU / LIST ---
+    // Hanya menerima "list" jika berdiri sendiri atau "menu", "help"
+    if (/^(help|menu|tolong|\?)$/.test(cmd) || (cmd === 'list' && !line.includes('tx'))) { 
+      results.push({ type: 'list' }); continue; 
+    }
+
+    // --- KOREKSI ---
+    if (/^(koreksi|undo|batal|hapus|del|cancel)$/.test(line)) { 
+      results.push({ type: 'koreksi', user }); continue; 
+    }
+
+    // --- BACKUP ---
+    if (/^(backup|db|unduh)$/.test(line)) { 
+      results.push({ type: 'backup' }); continue; 
+    }
+
+    // --- SET SALDO ---
     const mSaldo = line.match(/^set saldo (\w+) (\d+[k|jt|rb]*)$/);
     if (mSaldo) { 
       results.push({ type: 'set_saldo', user, account: mSaldo[1], amount: parseAmount(mSaldo[2]) }); continue; 
     }
+
+    // --- TRANSFER ---
     const mPindah = line.match(/^pindah (\d+[k|jt|rb]*) (\w+) (\w+)$/);
     if (mPindah) {
       results.push({ type: 'transfer_akun', user, amount: parseAmount(mPindah[1]), from: mPindah[2], to: mPindah[3], note: `Pindah ${mPindah[2]} ke ${mPindah[3]}` }); continue;
@@ -69,7 +79,6 @@ export function parseInput(text, senderId) {
     // --- SMART TRANSAKSI ---
     const tokens = line.split(/\s+/);
     const amountIdx = tokens.findIndex(t => /^\d+([.,]\d+)?[k|jt|rb]*$/i.test(t));
-
     if (amountIdx !== -1 && tokens.length >= 2) {
       const amountRaw = parseAmount(tokens[amountIdx]);
       const otherTokens = tokens.filter((_, i) => i !== amountIdx);
