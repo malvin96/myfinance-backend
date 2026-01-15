@@ -7,7 +7,7 @@ export const CATEGORIES = [
   { cat: "Tagihan", keys: ["listrik", "pln", "token", "air", "pdam", "wifi", "internet", "pulsa", "data", "kuota", "asuransi", "bpjs", "pajak", "kontrakan", "kos", "ipl", "sampah", "cicilan", "kpr", "cc", "kartu kredit", "netflix", "spotify", "youtube", "icloud", "arisan", "iuran", "zakat", "sedekah"] },
   { cat: "Kesehatan", keys: ["dokter", "dktr", "sakit", "obat", "obt", "apotek", "halodoc", "klinik", "rs", "vitamin", "vit", "suplemen", "masker", "pijat", "urut", "gym", "fitness", "olahraga", "potong rambut"] },
   { cat: "Hiburan", keys: ["bioskop", "nonton", "cinema", "xxi", "wisata", "liburan", "hotel", "staycation", "pantai", "gunung", "dufan", "game", "topup game", "hobi", "konser", "nongkrong", "buku"] },
-  { cat: "Investasi", keys: ["bibit", "mirrae", "mirae", "bca sekuritas", "bcas", "crypto", "kripto", "bitcoin", "btc", "usdt", "eth", "ajaib", "saham", "reksadana", "obligasi", "sbn", "emas", "antam", "deposito", "tabungan", "aset", "rdn", "sukuk"] }
+  { cat: "Investasi", keys: ["bibit", "mirrae", "mirae", "bca sekuritas", "bcas", "sekuritas", "crypto", "kripto", "bitcoin", "btc", "usdt", "eth", "ajaib", "saham", "reksadana", "obligasi", "sbn", "emas", "antam", "deposito", "tabungan", "aset", "rdn", "sukuk"] }
 ];
 
 export function detectCategory(note = "") {
