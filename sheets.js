@@ -19,7 +19,6 @@ export async function appendToSheet(tx) {
     const sheet = doc.sheetsByIndex[0];
     const date = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
     let amount = tx.amount;
-    // Logika: Pendapatan Positif, Pengeluaran Negatif
     if (tx.category !== "Pendapatan" && tx.category !== "Saldo Awal" && amount > 0) amount = -amount;
     if (tx.category === "Transfer") amount = 0;
 
