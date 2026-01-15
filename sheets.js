@@ -1,16 +1,8 @@
 import { JWT } from 'google-auth-library';
 import { GoogleSpreadsheet } from 'google-spreadsheet';
 
-const privateKey = process.env.GOOGLE_PRIVATE_KEY 
-  ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n') 
-  : undefined;
-
-const auth = new JWT({
-  email: process.env.GOOGLE_CLIENT_EMAIL,
-  key: privateKey, 
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
-
+const privateKey = process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined;
+const auth = new JWT({ email: process.env.GOOGLE_CLIENT_EMAIL, key: privateKey, scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
 
 export async function appendToSheet(tx) {
