@@ -10,7 +10,7 @@ import { CATEGORIES } from "./categories.js";
 import fetch from "node-fetch";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo v4.9 Final Fixed"));
+app.get("/", (req, res) => res.send("Bot MaYo v5.1 UI Fixed"));
 const port = process.env.PORT || 3000;
 app.listen(port);
 
@@ -18,7 +18,7 @@ initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━━";
 
-// [KUNCI] Definisi Akun Sesuai Request
+// [KUNCI] Definisi Akun (Case sensitive sesuai output parser.js)
 const LIQUID = ["cash", "bca", "ovo", "gopay", "shopeepay"];
 const ASSETS = ["bibit", "mirrae", "bca sekuritas"];
 
@@ -79,7 +79,6 @@ async function handleMessage(msg) {
 
   const results = parseInput(msg.text, senderId);
   
-  // ANTI-DIAM (ERROR HANDLING)
   if (!results.length) {
       return `⚠️ **SAYA TIDAK MENGERTI**\n\nFormat yang benar:\n\`[Angka] [Ket] [Akun]\`\n\nContoh:\n• \`50k makan bca\`\n• \`20rb bensin cash\`\n\nAtau ketik \`list\` untuk bantuan.`;
   }
@@ -104,18 +103,26 @@ async function handleMessage(msg) {
         [...new Set(d.rows.map(r => r.user))].forEach(u => {
           out += `\n*${u === 'M' ? '🧔 MALVIN' : '👩 YOVITA'}*\n`;
           
+          // [FIX] Padding diperbesar jadi 15 agar "BCA SEKURITAS" muat
           // SECTION 1: LIQUID
           const liq = d.rows.filter(r => r.user === u && LIQUID.includes(r.account));
           if (liq.length > 0) {
             out += ` 💧 *Liquid*\n`;
-            liq.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(10)}\`: \`${fmt(a.balance).padStart(14)}\`\n`);
+            liq.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(15)}\`: \`${fmt(a.balance).padStart(14)}\`\n`);
           }
 
           // SECTION 2: ASSETS
           const ast = d.rows.filter(r => r.user === u && ASSETS.includes(r.account));
           if (ast.length > 0) {
             out += ` 💼 *Aset*\n`;
-            ast.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(10)}\`: \`${fmt(a.balance).padStart(14)}\`\n`);
+            ast.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(15)}\`: \`${fmt(a.balance).padStart(14)}\`\n`);
+          }
+
+          // SECTION 3: LAINNYA (Fallback jika ada akun nyasar/typo)
+          const other = d.rows.filter(r => r.user === u && !LIQUID.includes(r.account) && !ASSETS.includes(r.account) && r.account !== 'cc');
+          if (other.length > 0) {
+            out += ` ❓ *Lainnya*\n`;
+            other.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(15)}\`: \`${fmt(a.balance).padStart(14)}\`\n`);
           }
 
           const total = d.rows.filter(r => r.user === u && r.account !== 'cc').reduce((a, b) => a + b.balance, 0);
@@ -161,21 +168,18 @@ async function handleMessage(msg) {
       } 
       else if (p.type === "set_saldo") {
         resetAccountBalance(p.user, p.account);
-        // [SYNC ENABLED] Kirim ke Sheet sebagai 'Saldo Awal'
         const tx = { ...p, category: "Saldo Awal" };
         addTx(tx);
         appendToSheet(tx).catch(console.error);
         replies.push(`💰 **SET SALDO ${p.account.toUpperCase()} - ${fmt(p.amount)}**`);
       } 
       else if (p.type === "transfer_akun") {
-        // [SYNC ENABLED] Kirim 2 Transaksi ke Sheet (Out & In)
         const txOut = { ...p, account: p.from, amount: -p.amount, category: "Transfer" };
         const txIn = { ...p, account: p.to, amount: p.amount, category: "Transfer" };
         
         addTx(txOut);
         addTx(txIn);
         
-        // Log ke Sheet
         appendToSheet(txOut).catch(console.error);
         appendToSheet(txIn).catch(console.error);
 
