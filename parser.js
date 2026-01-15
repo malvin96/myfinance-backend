@@ -1,15 +1,14 @@
 import { detectCategory } from "./categories.js";
 
 function parseAmount(str) {
-  // Cek operasi matematika sederhana (+ - * /)
+  // Fitur Math Input: hitung 50k-15k otomatis
   if (/[\+\-\*\/]/.test(str) && /\d/.test(str)) {
     try {
-      // Bersihkan k/rb/jt dulu sebelum dihitung
       let cleanExp = str.toLowerCase()
         .replace(/k|rb/g, '000')
         .replace(/jt/g, '000000')
         .replace(/[^0-9\+\-\*\/\.]/g, ''); 
-      return eval(cleanExp); // Safe enough for personal use with strictly filtered input
+      return eval(cleanExp); 
     } catch (e) { return 0; }
   }
 
@@ -35,38 +34,53 @@ export function parseInput(text, senderId) {
 
     const cmd = line.split(' ')[0];
 
-    // EXPORT PDF
+    // --- PDF EXPORT (UPDATE LENGKAP V4.7) ---
     if (line.startsWith('export pdf') || line.startsWith('pdf')) { 
-      let filter = { type: 'current', title: 'Laporan Bulanan', val: null };
+      let filter = { type: 'current', title: 'Laporan Bulan Ini', val: null };
+      
+      // 1. HARIAN
       if (line.includes('hari') || line.includes('daily')) {
-        filter = { type: 'day', title: 'Laporan Harian', val: new Date().toISOString().slice(0, 10) };
-      } else if (line.match(/\d{4}-\d{2}/)) { 
-        const mDate = line.match(/(\d{4}-\d{2})/)[1];
-        filter = { type: 'month', title: `Laporan ${mDate}`, val: mDate };
+        const today = new Date().toISOString().slice(0, 10);
+        filter = { type: 'day', title: `Laporan Harian (${today})`, val: today };
+      } 
+      // 2. MINGGUAN (7 Hari Terakhir)
+      else if (line.includes('minggu') || line.includes('week')) {
+        filter = { type: 'week', title: 'Laporan 7 Hari Terakhir', val: null };
       }
+      // 3. TAHUNAN
+      else if (line.includes('tahun') || line.includes('year')) {
+        const year = new Date().getFullYear().toString();
+        filter = { type: 'year', title: `Laporan Tahunan ${year}`, val: year };
+      }
+      // 4. BULAN TERTENTU (Format: 2026-01)
+      else if (line.match(/\d{4}-\d{2}/)) { 
+        const mDate = line.match(/(\d{4}-\d{2})/)[1];
+        filter = { type: 'month', title: `Laporan Bulan ${mDate}`, val: mDate };
+      }
+      
       results.push({ type: 'export_pdf', filter }); continue; 
     }
 
-    // MENU & FITUR LAIN
-    if (/^(rekap|rkap|rekp|reakp|saldo|sldo|sld|cek|balance)$/.test(cmd)) { results.push({ type: 'rekap' }); continue; }
+    // --- HISTORY (FLEKSIBEL) ---
     if (/^(history|hist|riwayat|list|ls)$/.test(cmd)) {
       const limitMatch = line.match(/\d+/); 
       const limit = limitMatch ? parseInt(limitMatch[0]) : 10;
       results.push({ type: 'history', limit }); continue; 
     }
+
+    // --- MENU & FITUR LAIN ---
+    if (/^(rekap|rkap|rekp|reakp|saldo|sldo|sld|cek|balance)$/.test(cmd)) { results.push({ type: 'rekap' }); continue; }
     if (/^(help|menu|tolong|\?)$/.test(cmd) || (cmd === 'list' && !line.includes('tx'))) { results.push({ type: 'list' }); continue; }
     if (/^(koreksi|undo|batal|hapus|del|cancel)$/.test(line)) { results.push({ type: 'koreksi', user }); continue; }
     if (/^(backup|db|unduh)$/.test(line)) { results.push({ type: 'backup' }); continue; }
 
-    // TRANSAKSI
-    const mSaldo = line.match(/^set saldo (\w+) (.+)$/); // Regex diubah untuk tangkap math expression
+    const mSaldo = line.match(/^set saldo (\w+) (.+)$/); 
     if (mSaldo) { results.push({ type: 'set_saldo', user, account: mSaldo[1], amount: parseAmount(mSaldo[2]) }); continue; }
     
-    const mPindah = line.match(/^pindah (.+) (\w+) (\w+)$/); // Regex diubah
+    const mPindah = line.match(/^pindah (.+) (\w+) (\w+)$/); 
     if (mPindah) { results.push({ type: 'transfer_akun', user, amount: parseAmount(mPindah[1]), from: mPindah[2], to: mPindah[3], note: `Pindah ${mPindah[2]} ke ${mPindah[3]}` }); continue; }
 
     const tokens = line.split(/\s+/);
-    // Cari token yang terlihat seperti angka (termasuk matematika sederhana)
     const amountIdx = tokens.findIndex(t => /^[\d\.\+\-\*\/]+([.,]\d+)?[k|jt|rb]*$/i.test(t));
     if (amountIdx !== -1 && tokens.length >= 2) {
       const amountRaw = parseAmount(tokens[amountIdx]);
