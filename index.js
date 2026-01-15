@@ -10,7 +10,7 @@ import { CATEGORIES } from "./categories.js";
 import fetch from "node-fetch";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo v4.6 Ultimate Active"));
+app.get("/", (req, res) => res.send("Bot MaYo v4.7 Flexible Active"));
 const port = process.env.PORT || 3000;
 app.listen(port);
 
@@ -81,9 +81,9 @@ async function handleMessage(msg) {
   for (let p of results) {
     try {
       if (p.type === "list") {
-        let out = `📜 *MENU v4.6 (Ultimate)*\n${line}\n`;
+        let out = `📜 *MENU v4.7 (Flexible)*\n${line}\n`;
         out += `📉 *Transaksi*\n├ \`50k makan bca\`\n├ \`kasih art 50k-12k cash\` (Hitung)\n├ \`history\`\n├ \`koreksi\` (Sync Sheet)\n\n`;
-        out += `⚙️ *System*\n├ \`rekap\`\n├ \`export pdf\`\n└ \`backup\`\n\n`;
+        out += `⚙️ *Laporan*\n├ \`rekap\`\n├ \`export pdf\` (Hari/Minggu/Tahun)\n└ \`backup\`\n\n`;
         out += `🆘 *Darurat*\nRender Reset? Kirim file .db backup ke sini.`;
         replies.push(out);
       } 
@@ -151,19 +151,19 @@ async function handleMessage(msg) {
         addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer" });
         replies.push(`🔄 *TRANSFER SUKSES*\n${p.from.toUpperCase()} ➔ ${p.to.toUpperCase()}: ${fmt(p.amount)}`);
       } 
-      // --- LOGIKA KOREKSI SINKRON (NEW) ---
+      // --- LOGIKA KOREKSI SINKRON (FITUR UNGGULAN) ---
       else if (p.type === "koreksi") {
         const lastTx = deleteLastTx(p.user);
         if (lastTx) {
-          // Buat transaksi penyeimbang untuk Sheet
+          // Kirim transaksi penyeimbang ke Sheet
           const reverseTx = {
             ...lastTx,
-            amount: -lastTx.amount, // Balik tanda (Minus jadi Plus, Plus jadi Minus)
+            amount: -lastTx.amount, 
             note: `[AUTO CORRECTION] Mengoreksi: ${lastTx.note} (${fmt(Math.abs(lastTx.amount))})`
           };
           appendToSheet(reverseTx).catch(console.error);
           
-          replies.push(`✅ **TRANSAKSI DIHAPUS**\n"${lastTx.note}" sebesar ${fmt(Math.abs(lastTx.amount))} telah dibatalkan.\n\n_(Sheet telah disinkronkan dengan transaksi penyeimbang)_`);
+          replies.push(`✅ **TRANSAKSI DIHAPUS**\n"${lastTx.note}" sebesar ${fmt(Math.abs(lastTx.amount))} telah dibatalkan.\n\n_(Sheet telah disinkronkan otomatis)_`);
         } else {
           replies.push("❌ Tidak ada transaksi untuk dikoreksi.");
         }
