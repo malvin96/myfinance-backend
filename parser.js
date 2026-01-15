@@ -1,7 +1,28 @@
 import { detectCategory } from "./categories.js";
 
+// --- KAMUS AKUN PINTAR (ALIAS) ---
+const ACCOUNT_MAP = {
+  'bca': ['bca', 'mbca', 'm-bca', 'qris', 'qr', 'scan', 'transfer', 'debit'],
+  'cash': ['cash', 'tunai', 'dompet', 'uang', 'kes', 'cash'],
+  'gopay': ['gopay', 'gojek', 'gopy'],
+  'ovo': ['ovo'],
+  'shopeepay': ['shopeepay', 'shopee', 'spay', 'shope'],
+  'mandiri': ['mandiri', 'livin', 'm-banking'],
+  'bibit': ['bibit', 'reksadana', 'rdn'],
+  'cc': ['cc', 'kartu kredit', 'credit card']
+};
+
+function normalizeAccount(raw) {
+  if (!raw) return 'Lainnya';
+  const lower = raw.toLowerCase().replace(/[^a-z0-9]/g, ''); // Hapus simbol aneh
+  
+  for (const [standard, aliases] of Object.entries(ACCOUNT_MAP)) {
+    if (standard === lower || aliases.includes(lower)) return standard;
+  }
+  return raw; // Jika tidak ada di kamus, kembalikan apa adanya (Fleksibel)
+}
+
 function parseAmount(str) {
-  // Fitur Math Input: hitung 50k-15k otomatis
   if (/[\+\-\*\/]/.test(str) && /\d/.test(str)) {
     try {
       let cleanExp = str.toLowerCase()
@@ -55,14 +76,12 @@ export function parseInput(text, senderId) {
       results.push({ type: 'export_pdf', filter }); continue; 
     }
 
-    // --- 2. MENU BANTUAN (Fix: 'list' masuk sini) ---
-    // Saya hapus logika rumit sebelumnya, langsung gabung regex saja biar pasti.
+    // --- 2. MENU BANTUAN ---
     if (/^(help|menu|tolong|list|ls|\?)$/.test(cmd) && !line.includes('tx')) { 
       results.push({ type: 'list' }); continue; 
     }
 
-    // --- 3. HISTORY (Fix: 'list' DIHAPUS dari sini) ---
-    // Hanya bereaksi pada: history, hist, riwayat
+    // --- 3. HISTORY ---
     if (/^(history|hist|riwayat)$/.test(cmd)) {
       const limitMatch = line.match(/\d+/); 
       const limit = limitMatch ? parseInt(limitMatch[0]) : 10;
@@ -74,21 +93,45 @@ export function parseInput(text, senderId) {
     if (/^(koreksi|undo|batal|hapus|del|cancel)$/.test(line)) { results.push({ type: 'koreksi', user }); continue; }
     if (/^(backup|db|unduh)$/.test(line)) { results.push({ type: 'backup' }); continue; }
 
+    // --- TRANSAKSI KHUSUS (SET SALDO / PINDAH) ---
     const mSaldo = line.match(/^set saldo (\w+) (.+)$/); 
-    if (mSaldo) { results.push({ type: 'set_saldo', user, account: mSaldo[1], amount: parseAmount(mSaldo[2]) }); continue; }
+    if (mSaldo) { 
+        results.push({ 
+            type: 'set_saldo', 
+            user, 
+            account: normalizeAccount(mSaldo[1]), // Pakai Normalisasi 
+            amount: parseAmount(mSaldo[2]) 
+        }); continue; 
+    }
     
     const mPindah = line.match(/^pindah (.+) (\w+) (\w+)$/); 
-    if (mPindah) { results.push({ type: 'transfer_akun', user, amount: parseAmount(mPindah[1]), from: mPindah[2], to: mPindah[3], note: `Pindah ${mPindah[2]} ke ${mPindah[3]}` }); continue; }
+    if (mPindah) { 
+        results.push({ 
+            type: 'transfer_akun', 
+            user, 
+            amount: parseAmount(mPindah[1]), 
+            from: normalizeAccount(mPindah[2]), // Pakai Normalisasi
+            to: normalizeAccount(mPindah[3]),   // Pakai Normalisasi
+            note: `Pindah ${normalizeAccount(mPindah[2])} ke ${normalizeAccount(mPindah[3])}` 
+        }); continue; 
+    }
 
+    // --- TRANSAKSI UMUM ---
     const tokens = line.split(/\s+/);
     const amountIdx = tokens.findIndex(t => /^[\d\.\+\-\*\/]+([.,]\d+)?[k|jt|rb]*$/i.test(t));
+    
     if (amountIdx !== -1 && tokens.length >= 2) {
       const amountRaw = parseAmount(tokens[amountIdx]);
       const otherTokens = tokens.filter((_, i) => i !== amountIdx);
-      const account = otherTokens.pop(); 
+      
+      // Ambil kata terakhir sebagai akun, lalu NORMALISASI
+      let rawAccount = otherTokens.pop(); 
+      let account = normalizeAccount(rawAccount);
+
       let note = otherTokens.join(' ');
       const category = detectCategory(note);
       if (!note) note = category;
+      
       const amount = (category === "Pendapatan") ? Math.abs(amountRaw) : -Math.abs(amountRaw);
       results.push({ type: 'tx', user, amount, note, account, category });
     }
