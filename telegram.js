@@ -38,7 +38,7 @@ export async function getFileLink(fileId) {
 
 export async function pollUpdates(handleMessage) {
   let offset = 0;
-  console.log("Bot MaYo v4.5 Render Ready...");
+  console.log("Bot MaYo v4.6 Ultimate Ready...");
   while (true) {
     try {
       const response = await fetch(`${TELEGRAM_API}/getUpdates?offset=${offset}&timeout=30`);
