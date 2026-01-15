@@ -22,13 +22,11 @@ export function resetAccountBalance(user, account) {
 }
 
 export function deleteLastTx(user) {
-  // Ambil transaksi terakhir
   const last = db.prepare("SELECT * FROM transactions WHERE user = ? ORDER BY id DESC LIMIT 1").get(user);
   if (last) {
-    // Hapus dari DB
     db.prepare("DELETE FROM transactions WHERE id = ?").run(last.id);
   }
-  return last; // Kembalikan data yang dihapus agar bisa diproses index.js
+  return last;
 }
 
 export function getBudgetSummary() {
@@ -55,13 +53,34 @@ export function getTotalCCHariIni() {
   return db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account = 'cc' AND amount < 0 AND date(timestamp) = date('now', 'localtime')").get() || { total: 0 };
 }
 
+// --- UPDATE SQL QUERY (V4.7) ---
 export function getFilteredTransactions(filter) {
   let query = "SELECT timestamp, user, account, category, amount, note FROM transactions";
   let params = [];
-  if (filter.type === 'day') { query += " WHERE date(timestamp) = date(?)"; params.push(filter.val); }
-  else if (filter.type === 'month') { query += " WHERE strftime('%m-%Y', timestamp) = ?"; params.push(filter.val); }
-  else if (filter.type === 'week') { query += " WHERE timestamp >= date('now', '-7 days')"; }
-  else if (filter.type === 'current') { query += " WHERE strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')"; }
+  
+  if (filter.type === 'day') { 
+    query += " WHERE date(timestamp) = date(?)"; 
+    params.push(filter.val); 
+  }
+  else if (filter.type === 'week') { 
+    // 7 Hari Terakhir
+    query += " WHERE timestamp >= date('now', '-7 days')"; 
+  }
+  else if (filter.type === 'month') { 
+    // Bulan Spesifik (YYYY-MM)
+    query += " WHERE strftime('%m-%Y', timestamp) = ?"; 
+    params.push(filter.val); 
+  }
+  else if (filter.type === 'year') { 
+    // Tahun Spesifik (YYYY)
+    query += " WHERE strftime('%Y', timestamp) = ?"; 
+    params.push(filter.val); 
+  }
+  else if (filter.type === 'current') { 
+    // Bulan Ini (Default)
+    query += " WHERE strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')"; 
+  }
+  
   query += " ORDER BY timestamp DESC";
   return db.prepare(query).all(...params);
 }
