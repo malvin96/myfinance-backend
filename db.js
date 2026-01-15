@@ -52,5 +52,12 @@ export function getTotalCCHariIni() {
 }
 
 export function getFilteredTransactions(filter) {
-  return db.prepare("SELECT timestamp, user, account, category, amount, note FROM transactions ORDER BY timestamp DESC").all();
+  let query = "SELECT timestamp, user, account, category, amount, note FROM transactions";
+  let params = [];
+  if (filter.type === 'day') { query += " WHERE date(timestamp) = date(?)"; params.push(filter.val); }
+  else if (filter.type === 'month') { query += " WHERE strftime('%m-%Y', timestamp) = ?"; params.push(filter.val); }
+  else if (filter.type === 'week') { query += " WHERE timestamp >= date('now', '-7 days')"; }
+  else if (filter.type === 'current') { query += " WHERE strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')"; }
+  query += " ORDER BY timestamp DESC";
+  return db.prepare(query).all(...params);
 }
