@@ -11,13 +11,20 @@ export async function appendToSheet(tx) {
     const sheet = doc.sheetsByIndex[0];
     const date = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
     let amount = tx.amount;
+    
+    // Logika Amount untuk Sheet
     if (tx.category !== "Pendapatan" && tx.category !== "Saldo Awal" && amount > 0) amount = -amount;
-    if (tx.category === "Transfer") amount = 0;
+    if (tx.category === "Transfer") amount = 0; // Transfer biasanya 0 di income statement, atau buat 2 baris (In/Out) jika mau detail.
+    
+    // Fitur Smart Correction (Jika ini transaksi penyeimbang)
+    if (tx.note && tx.note.includes("AUTO CORRECTION")) {
+       // Biarkan amount apa adanya (karena sudah dibalik di index.js)
+    }
 
     await sheet.addRow({
       Timestamp: date,
       User: tx.user === 'M' ? 'Malvin' : 'Yovita',
-      Type: tx.amount > 0 ? 'Income' : 'Expense',
+      Type: amount > 0 ? 'Income' : 'Expense',
       Category: tx.category,
       Note: tx.note,
       Account: tx.account.toUpperCase(),
