@@ -9,9 +9,9 @@ import { appendToSheet } from "./sheets.js";
 import { CATEGORIES } from "./categories.js";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo v4.3 Aktif"));
-const port = process.env.PORT || 3000;
-app.listen(port);
+app.get("/", (req, res) => res.send("Bot MaYo v4.4 Cloud Active"));
+const port = process.env.PORT || 8080; // Google Cloud biasanya pakai port 8080
+app.listen(port, () => console.log(`Server running on port ${port}`));
 
 initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
@@ -62,9 +62,9 @@ async function handleMessage(msg) {
   for (let p of results) {
     try {
       if (p.type === "list") {
-        let out = `📜 *MENU v4.3*\n${line}\n`;
-        out += `📉 *Transaksi*\n├ \`50k makan bca\` (Fleksibel)\n├ \`history\` / \`history 50\`\n├ \`koreksi\` (Undo)\n\n`;
-        out += `⚙️ *Laporan*\n├ \`rekap\` (Saldo)\n├ \`export pdf\` (AI Friendly)\n└ \`backup\`\n${line}`;
+        let out = `📜 *MENU v4.4 (Cloud)*\n${line}\n`;
+        out += `📉 *Transaksi*\n├ \`50k makan bca\`\n├ \`history\` / \`history 50\`\n├ \`koreksi\`\n\n`;
+        out += `⚙️ *Laporan*\n├ \`rekap\` (Saldo)\n├ \`export pdf\` (AI)\n└ \`backup\`\n${line}`;
         replies.push(out);
       } 
       else if (p.type === "rekap") {
@@ -95,10 +95,8 @@ async function handleMessage(msg) {
          const filter = { type: 'current', val: null }; 
          const allTxs = getFilteredTransactions(filter); 
          const txs = allTxs.slice(0, p.limit); 
-         
-         if (txs.length === 0) {
-            replies.push("📭 Belum ada transaksi bulan ini.");
-         } else {
+         if (txs.length === 0) replies.push("📭 Belum ada transaksi bulan ini.");
+         else {
             let out = `🗓️ *HISTORY ${txs.length} TERAKHIR*\n${line}\n`;
             txs.forEach(t => {
                const icon = t.amount > 0 ? "📈" : "📉";
@@ -110,9 +108,8 @@ async function handleMessage(msg) {
       }
       else if (p.type === "export_pdf") {
         const data = getFilteredTransactions(p.filter);
-        if (!data || data.length === 0) {
-           replies.push(`❌ Tidak ada data untuk periode: ${p.filter.title}`);
-        } else {
+        if (!data || data.length === 0) replies.push(`❌ Tidak ada data: ${p.filter.title}`);
+        else {
            const filePath = await createPDF(data, p.filter.title);
            await sendDocument(chatId, filePath, `📄 ${p.filter.title}`);
            fs.unlinkSync(filePath);
@@ -127,8 +124,7 @@ async function handleMessage(msg) {
       else if (p.type === "set_saldo") {
         resetAccountBalance(p.user, p.account);
         addTx({ ...p, category: "Saldo Awal" });
-        let out = `💰 **SET SALDO ${p.account.toUpperCase()} - ${fmt(p.amount)}**\n`;
-        replies.push(out);
+        replies.push(`💰 **SET SALDO ${p.account.toUpperCase()} - ${fmt(p.amount)}**`);
       } 
       else if (p.type === "transfer_akun") {
         addTx({ ...p, account: p.from, amount: -p.amount, category: "Transfer" });
