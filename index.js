@@ -10,19 +10,18 @@ import { CATEGORIES } from "./categories.js";
 import fetch from "node-fetch";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo v4.5 Render Survival Mode"));
+app.get("/", (req, res) => res.send("Bot MaYo v4.6 Ultimate Active"));
 const port = process.env.PORT || 3000;
 app.listen(port);
 
 initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━━";
-// LIST LIQUID SESUAI REQUEST USER
 const LIQUID = ["cash", "bca", "ovo", "gopay", "shopeepay"];
 
 const pendingTxs = {};
 
-// BACKUP HARIAN (Simpan file ini baik-baik!)
+// AUTO BACKUP
 cron.schedule('59 23 * * *', async () => {
   const date = new Date().toISOString().slice(0, 10);
   const file = `myfinance_backup_${date}.db`;
@@ -35,6 +34,7 @@ cron.schedule('59 23 * * *', async () => {
   } catch (e) { console.error(e); }
 }, { timezone: "Asia/Jakarta" });
 
+// REMINDER CC
 cron.schedule('0 21 * * *', async () => {
   const cc = getTotalCCHariIni();
   if (cc && cc.total < 0) sendMessage(5023700044, `🔔 *REMINDER CC*\n${line}\nTagihan CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa dilunasi! 💳`); 
@@ -45,7 +45,7 @@ async function handleMessage(msg) {
   const senderId = msg.from.id;
   if (![5023700044, 8469259152].includes(senderId)) return;
   
-  // --- FITUR RESTORE DATABASE (Penyelamat di Render) ---
+  // RESTORE LOGIC
   if (msg.document && (msg.document.file_name.endsWith('.db') || msg.document.file_name.endsWith('.sqlite'))) {
     sendMessage(chatId, "⏳ **MENDETEKSI DATABASE...**\nSedang memulihkan data...");
     const link = await getFileLink(msg.document.file_id);
@@ -54,7 +54,7 @@ async function handleMessage(msg) {
         const res = await fetch(link);
         const buffer = await res.arrayBuffer();
         fs.writeFileSync("myfinance.db", Buffer.from(buffer));
-        setTimeout(() => { process.exit(0); }, 2000); // Restart otomatis
+        setTimeout(() => { process.exit(0); }, 2000); 
         return "✅ **RESTORE SUKSES!**\nData telah pulih. Bot akan restart sebentar...";
       } catch (e) { console.error(e); return "❌ Gagal restore."; }
     }
@@ -81,10 +81,10 @@ async function handleMessage(msg) {
   for (let p of results) {
     try {
       if (p.type === "list") {
-        let out = `📜 *MENU v4.5 (Render Mode)*\n${line}\n`;
-        out += `📉 *Transaksi*\n├ \`50k makan bca\`\n├ \`history\`\n├ \`koreksi\`\n\n`;
-        out += `⚙️ *Laporan*\n├ \`rekap\` (Saldo)\n├ \`export pdf\` (AI)\n└ \`backup\` (Manual)\n\n`;
-        out += `🆘 *Darurat*\nRender Reset? Kirim file .db backup ke sini untuk restore.`;
+        let out = `📜 *MENU v4.6 (Ultimate)*\n${line}\n`;
+        out += `📉 *Transaksi*\n├ \`50k makan bca\`\n├ \`kasih art 50k-12k cash\` (Hitung)\n├ \`history\`\n├ \`koreksi\` (Sync Sheet)\n\n`;
+        out += `⚙️ *System*\n├ \`rekap\`\n├ \`export pdf\`\n└ \`backup\`\n\n`;
+        out += `🆘 *Darurat*\nRender Reset? Kirim file .db backup ke sini.`;
         replies.push(out);
       } 
       else if (p.type === "rekap") {
@@ -151,6 +151,23 @@ async function handleMessage(msg) {
         addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer" });
         replies.push(`🔄 *TRANSFER SUKSES*\n${p.from.toUpperCase()} ➔ ${p.to.toUpperCase()}: ${fmt(p.amount)}`);
       } 
+      // --- LOGIKA KOREKSI SINKRON (NEW) ---
+      else if (p.type === "koreksi") {
+        const lastTx = deleteLastTx(p.user);
+        if (lastTx) {
+          // Buat transaksi penyeimbang untuk Sheet
+          const reverseTx = {
+            ...lastTx,
+            amount: -lastTx.amount, // Balik tanda (Minus jadi Plus, Plus jadi Minus)
+            note: `[AUTO CORRECTION] Mengoreksi: ${lastTx.note} (${fmt(Math.abs(lastTx.amount))})`
+          };
+          appendToSheet(reverseTx).catch(console.error);
+          
+          replies.push(`✅ **TRANSAKSI DIHAPUS**\n"${lastTx.note}" sebesar ${fmt(Math.abs(lastTx.amount))} telah dibatalkan.\n\n_(Sheet telah disinkronkan dengan transaksi penyeimbang)_`);
+        } else {
+          replies.push("❌ Tidak ada transaksi untuk dikoreksi.");
+        }
+      }
       else if (p.type === "tx") {
         if (p.category === "Lainnya") {
           pendingTxs[chatId] = p;
