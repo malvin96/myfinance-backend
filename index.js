@@ -10,7 +10,7 @@ import { CATEGORIES } from "./categories.js";
 import fetch from "node-fetch";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo v5.1 UI Fixed"));
+app.get("/", (req, res) => res.send("Bot MaYo v5.2 Ultimate Active"));
 const port = process.env.PORT || 3000;
 app.listen(port);
 
@@ -18,9 +18,10 @@ initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━━";
 
-// [KUNCI] Definisi Akun (Case sensitive sesuai output parser.js)
+// [KUNCI] DAFTAR AKUN LENGKAP (Digunakan untuk validasi & UI)
 const LIQUID = ["cash", "bca", "ovo", "gopay", "shopeepay"];
 const ASSETS = ["bibit", "mirrae", "bca sekuritas"];
+const ALL_ACCOUNTS = [...LIQUID, ...ASSETS];
 
 const pendingTxs = {};
 
@@ -79,6 +80,7 @@ async function handleMessage(msg) {
 
   const results = parseInput(msg.text, senderId);
   
+  // ANTI-DIAM (ERROR HANDLING)
   if (!results.length) {
       return `⚠️ **SAYA TIDAK MENGERTI**\n\nFormat yang benar:\n\`[Angka] [Ket] [Akun]\`\n\nContoh:\n• \`50k makan bca\`\n• \`20rb bensin cash\`\n\nAtau ketik \`list\` untuk bantuan.`;
   }
@@ -86,14 +88,26 @@ async function handleMessage(msg) {
   let replies = [];
   for (let p of results) {
     try {
+      // --- 1. MENU BANTUAN (UI BARU: Perintah - Tujuan) ---
       if (p.type === "list") {
         let out = `🤖 **MENU BANTUAN**\n${line}\n`;
-        out += `📝 **INPUT TRANSAKSI**\nFormat: \`[Angka] [Ket] [Akun]\`\n• \`50k makan bca\` (Auto: QRIS/MBCA)\n• \`gaji 15jt bca\`\n• \`50k-15k cash\` (Hitung)\n• \`pindah 500k bca gopay\`\n\n`;
-        out += `📂 **KATA KUNCI (KEYWORD)**\n• **Makan:** \`makan\`, \`jajan\`, \`kopi\`\n• **Transport:** \`bensin\`, \`parkir\`, \`grab\`\n• **Belanja:** \`shopee\`, \`beli\`, \`baju\`\n• **Tagihan:** \`listrik\`, \`pulsa\`, \`cc\`\n• **Investasi:** \`bibit\`, \`crypto\`, \`saham\`\n\n`;
-        out += `📊 **LAPORAN & DATA**\n• \`rekap\` (Cek Saldo)\n• \`history\` (10 Tx Terakhir)\n• \`export pdf\` (Bulan Ini)\n• \`export pdf minggu\` (7 Hari)\n\n`;
-        out += `🛠️ **SYSTEM**\n• \`koreksi\` (Undo & Sync)\n• \`backup\` (Download DB)`;
+        out += `📌 **DAFTAR PERINTAH & TUJUAN**\n`;
+        out += `\`[Angka] [Ket] [Akun]\` : Catat Transaksi (Acak ok)\n`;
+        out += `\`pindah [Jml] [Dari] [Ke]\` : Transfer Saldo Antar Akun\n`;
+        out += `\`set saldo [Akun] [Jml]\` : Reset/Set Saldo Awal\n`;
+        out += `\`koreksi\` : Batalkan Transaksi Terakhir\n`;
+        out += `\`rekap\` : Cek Total Saldo (Liquid & Aset)\n`;
+        out += `\`history\` : Cek 10 Transaksi Terakhir\n`;
+        out += `\`export pdf\` : Download Laporan Bulanan\n`;
+        out += `\`backup\` : Download Database Manual\n\n`;
+        
+        out += `📂 **AKUN TERDAFTAR**\n`;
+        out += `💧 Liquid: ${LIQUID.map(a => a.toUpperCase()).join(", ")}\n`;
+        out += `💼 Aset: ${ASSETS.map(a => a.toUpperCase()).join(", ")}`;
+        
         replies.push(out);
       } 
+      // --- 2. REKAP SALDO (UI Rapi Padding 15) ---
       else if (p.type === "rekap") {
         const d = getRekapLengkap();
         const cf = getCashflowSummary();
@@ -103,22 +117,19 @@ async function handleMessage(msg) {
         [...new Set(d.rows.map(r => r.user))].forEach(u => {
           out += `\n*${u === 'M' ? '🧔 MALVIN' : '👩 YOVITA'}*\n`;
           
-          // [FIX] Padding diperbesar jadi 15 agar "BCA SEKURITAS" muat
-          // SECTION 1: LIQUID
           const liq = d.rows.filter(r => r.user === u && LIQUID.includes(r.account));
           if (liq.length > 0) {
             out += ` 💧 *Liquid*\n`;
             liq.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(15)}\`: \`${fmt(a.balance).padStart(14)}\`\n`);
           }
 
-          // SECTION 2: ASSETS
           const ast = d.rows.filter(r => r.user === u && ASSETS.includes(r.account));
           if (ast.length > 0) {
             out += ` 💼 *Aset*\n`;
             ast.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(15)}\`: \`${fmt(a.balance).padStart(14)}\`\n`);
           }
 
-          // SECTION 3: LAINNYA (Fallback jika ada akun nyasar/typo)
+          // Fallback untuk akun diluar daftar
           const other = d.rows.filter(r => r.user === u && !LIQUID.includes(r.account) && !ASSETS.includes(r.account) && r.account !== 'cc');
           if (other.length > 0) {
             out += ` ❓ *Lainnya*\n`;
@@ -136,12 +147,16 @@ async function handleMessage(msg) {
         out += `\n💳 *CC HARI INI:* \`${fmt(Math.abs(cc.total || 0))}\`\n${line}\n🌍 *NET WORTH:* **${fmt(d.totalWealth)}**\n`;
         replies.push(out);
       } 
+      // --- 3. HISTORY (FIX: Handle Empty Data) ---
       else if (p.type === "history") {
          const filter = { type: 'current', val: null }; 
-         const allTxs = getFilteredTransactions(filter); 
-         const txs = allTxs.slice(0, p.limit); 
-         if (txs.length === 0) replies.push("📭 Belum ada transaksi bulan ini.");
-         else {
+         let allTxs = [];
+         try { allTxs = getFilteredTransactions(filter); } catch (e) { allTxs = []; }
+
+         if (!allTxs || allTxs.length === 0) {
+             replies.push("📭 **BELUM ADA TRANSAKSI**\nBelum ada data tercatat bulan ini.");
+         } else {
+            const txs = allTxs.slice(0, p.limit);
             let out = `🗓️ *HISTORY ${txs.length} TERAKHIR*\n${line}\n`;
             txs.forEach(t => {
                const icon = t.amount > 0 ? "📈" : "📉";
@@ -151,6 +166,7 @@ async function handleMessage(msg) {
             replies.push(out);
          }
       }
+      // --- 4. EXPORT PDF ---
       else if (p.type === "export_pdf") {
         const data = getFilteredTransactions(p.filter);
         if (!data || data.length === 0) replies.push(`❌ Tidak ada data: ${p.filter.title}`);
@@ -166,23 +182,36 @@ async function handleMessage(msg) {
         await sendDocument(chatId, file, `✅ **BACKUP MANUAL SELESAI**`);
         fs.unlinkSync(file);
       } 
+      // --- 5. SET SALDO (FIX: Info Akun Belum Diset) ---
       else if (p.type === "set_saldo") {
         resetAccountBalance(p.user, p.account);
         const tx = { ...p, category: "Saldo Awal" };
         addTx(tx);
         appendToSheet(tx).catch(console.error);
-        replies.push(`💰 **SET SALDO ${p.account.toUpperCase()} - ${fmt(p.amount)}**`);
+
+        // Cek akun mana yang belum punya saldo di DB
+        const rekap = getRekapLengkap();
+        // Ambil list akun yang sudah ada di DB untuk user ini
+        const filledAccounts = rekap.rows.filter(r => r.user === p.user).map(r => r.account);
+        // Bandingkan dengan Master List
+        const unsetAccounts = ALL_ACCOUNTS.filter(acc => !filledAccounts.includes(acc) && acc !== p.account);
+
+        let msg = `💰 **SET SALDO ${p.account.toUpperCase()} SUKSES**\n└ Saldo: ${fmt(p.amount)}`;
+        
+        if (unsetAccounts.length > 0) {
+            msg += `\n\n⚠️ **AKUN BELUM DI-SET:**\n${unsetAccounts.map(a => `• \`${a.toUpperCase()}\``).join('\n')}`;
+        } else {
+            msg += `\n\n✅ **Semua akun sudah aktif!**`;
+        }
+        replies.push(msg);
       } 
       else if (p.type === "transfer_akun") {
         const txOut = { ...p, account: p.from, amount: -p.amount, category: "Transfer" };
         const txIn = { ...p, account: p.to, amount: p.amount, category: "Transfer" };
-        
         addTx(txOut);
         addTx(txIn);
-        
         appendToSheet(txOut).catch(console.error);
         appendToSheet(txIn).catch(console.error);
-
         replies.push(`🔄 *TRANSFER SUKSES*\n${p.from.toUpperCase()} ➔ ${p.to.toUpperCase()}: ${fmt(p.amount)}`);
       } 
       else if (p.type === "koreksi") {
@@ -209,7 +238,7 @@ async function handleMessage(msg) {
           appendToSheet(p).catch(console.error);
         }
       }
-    } catch (e) { replies.push("❌ Error."); console.error(e); }
+    } catch (e) { replies.push("❌ Error Sistem."); console.error(e); }
   }
   return replies.join('\n\n');
 }
