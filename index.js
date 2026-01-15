@@ -1,32 +1,35 @@
 import express from "express";
 import fs from 'fs';
 import cron from 'node-cron';
-import { pollUpdates, sendMessage, sendDocument } from "./telegram.js";
+import { pollUpdates, sendMessage, sendDocument, getFileLink } from "./telegram.js";
 import { parseInput } from "./parser.js";
 import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, resetAccountBalance, getBudgetSummary, getCashflowSummary, deleteLastTx, getFilteredTransactions } from "./db.js";
 import { createPDF } from "./export.js";
 import { appendToSheet } from "./sheets.js";
 import { CATEGORIES } from "./categories.js";
+import fetch from "node-fetch";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo v4.4 Cloud Active"));
-const port = process.env.PORT || 8080; // Google Cloud biasanya pakai port 8080
-app.listen(port, () => console.log(`Server running on port ${port}`));
+app.get("/", (req, res) => res.send("Bot MaYo v4.5 Render Survival Mode"));
+const port = process.env.PORT || 3000;
+app.listen(port);
 
 initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━━";
-const LIQUID = ["cash", "bca", "ovo", "gopay", "shopeepay", "jago", "seabank"];
+// LIST LIQUID SESUAI REQUEST USER
+const LIQUID = ["cash", "bca", "ovo", "gopay", "shopeepay"];
 
 const pendingTxs = {};
 
+// BACKUP HARIAN (Simpan file ini baik-baik!)
 cron.schedule('59 23 * * *', async () => {
   const date = new Date().toISOString().slice(0, 10);
   const file = `myfinance_backup_${date}.db`;
   try {
     if (fs.existsSync('myfinance.db')) {
       fs.copyFileSync('myfinance.db', file);
-      await sendDocument(5023700044, file, `📂 **DAILY BACKUP**\n${line}\n📅: \`${date}\`\n✅ Database aman.`);
+      await sendDocument(5023700044, file, `📂 **DAILY BACKUP**\n${line}\n📅: \`${date}\`\n✅ Simpan file ini untuk RESTORE jika Render reset.`);
       fs.unlinkSync(file);
     }
   } catch (e) { console.error(e); }
@@ -41,6 +44,22 @@ async function handleMessage(msg) {
   const chatId = msg.chat.id;
   const senderId = msg.from.id;
   if (![5023700044, 8469259152].includes(senderId)) return;
+  
+  // --- FITUR RESTORE DATABASE (Penyelamat di Render) ---
+  if (msg.document && (msg.document.file_name.endsWith('.db') || msg.document.file_name.endsWith('.sqlite'))) {
+    sendMessage(chatId, "⏳ **MENDETEKSI DATABASE...**\nSedang memulihkan data...");
+    const link = await getFileLink(msg.document.file_id);
+    if (link) {
+      try {
+        const res = await fetch(link);
+        const buffer = await res.arrayBuffer();
+        fs.writeFileSync("myfinance.db", Buffer.from(buffer));
+        setTimeout(() => { process.exit(0); }, 2000); // Restart otomatis
+        return "✅ **RESTORE SUKSES!**\nData telah pulih. Bot akan restart sebentar...";
+      } catch (e) { console.error(e); return "❌ Gagal restore."; }
+    }
+  }
+
   const text = msg.text ? msg.text.trim().toLowerCase() : "";
   if (!text) return;
 
@@ -62,9 +81,10 @@ async function handleMessage(msg) {
   for (let p of results) {
     try {
       if (p.type === "list") {
-        let out = `📜 *MENU v4.4 (Cloud)*\n${line}\n`;
-        out += `📉 *Transaksi*\n├ \`50k makan bca\`\n├ \`history\` / \`history 50\`\n├ \`koreksi\`\n\n`;
-        out += `⚙️ *Laporan*\n├ \`rekap\` (Saldo)\n├ \`export pdf\` (AI)\n└ \`backup\`\n${line}`;
+        let out = `📜 *MENU v4.5 (Render Mode)*\n${line}\n`;
+        out += `📉 *Transaksi*\n├ \`50k makan bca\`\n├ \`history\`\n├ \`koreksi\`\n\n`;
+        out += `⚙️ *Laporan*\n├ \`rekap\` (Saldo)\n├ \`export pdf\` (AI)\n└ \`backup\` (Manual)\n\n`;
+        out += `🆘 *Darurat*\nRender Reset? Kirim file .db backup ke sini untuk restore.`;
         replies.push(out);
       } 
       else if (p.type === "rekap") {
