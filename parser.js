@@ -1,7 +1,6 @@
 import { detectCategory } from "./categories.js";
 
-// --- KAMUS AKUN PINTAR (FINAL) ---
-// Sesuai request: Liquid & Aset dipisahkan definisinya di sini
+// --- KAMUS AKUN PINTAR (FINAL v5.1) ---
 const ACCOUNT_MAP = {
   // LIQUID
   'bca': ['bca', 'mbca', 'm-bca', 'qris', 'qr', 'scan', 'transfer', 'debit'],
@@ -12,8 +11,8 @@ const ACCOUNT_MAP = {
   
   // ASET / INVESTASI
   'bibit': ['bibit', 'reksadana', 'rdn'],
-  'mirrae': ['mirrae', 'mirae', 'mire', 'saham'],
-  'bca sekuritas': ['bca sekuritas', 'bcas', 'sekuritas'], // "sekuritas" otomatis jadi "bca sekuritas"
+  'mirrae': ['mirrae', 'mirae', 'mire', 'saham', 'sekuritas'],
+  'bca sekuritas': ['bca sekuritas', 'bcas', 'bca s', 'bcasekuritas'], 
   
   // LAINNYA
   'cc': ['cc', 'kartu kredit', 'credit card']
@@ -21,13 +20,13 @@ const ACCOUNT_MAP = {
 
 function normalizeAccount(raw) {
   if (!raw) return 'Lainnya';
-  const lower = raw.toLowerCase().replace(/[^a-z0-9 ]/g, ''); // Allow space for 'bca sekuritas'
+  // Fix: Replace multiple spaces with single space & remove weird chars
+  const lower = raw.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); 
   
   for (const [standard, aliases] of Object.entries(ACCOUNT_MAP)) {
-    // Cek jika input sama persis dengan standard ATAU ada di alias
     if (standard === lower || aliases.includes(lower)) return standard;
   }
-  return raw; 
+  return lower; // Return lower instead of raw to ensure consistency
 }
 
 function parseAmount(str) {
@@ -63,7 +62,7 @@ export function parseInput(text, senderId) {
 
     const cmd = line.split(' ')[0];
 
-    // --- 1. EXPORT PDF ---
+    // EXPORT PDF
     if (line.startsWith('export pdf') || line.startsWith('pdf')) { 
       let filter = { type: 'current', title: 'Laporan Bulan Ini', val: null };
       if (line.includes('hari') || line.includes('daily')) {
@@ -84,62 +83,59 @@ export function parseInput(text, senderId) {
       results.push({ type: 'export_pdf', filter }); continue; 
     }
 
-    // --- 2. MENU BANTUAN ---
+    // MENU
     if (/^(help|menu|tolong|list|ls|\?)$/.test(cmd) && !line.includes('tx')) { 
       results.push({ type: 'list' }); continue; 
     }
 
-    // --- 3. HISTORY ---
+    // HISTORY
     if (/^(history|hist|riwayat)$/.test(cmd)) {
       const limitMatch = line.match(/\d+/); 
       const limit = limitMatch ? parseInt(limitMatch[0]) : 10;
       results.push({ type: 'history', limit }); continue; 
     }
 
-    // --- FITUR LAIN ---
+    // FITUR LAIN
     if (/^(rekap|rkap|rekp|reakp|saldo|sldo|sld|cek|balance)$/.test(cmd)) { results.push({ type: 'rekap' }); continue; }
     if (/^(koreksi|undo|batal|hapus|del|cancel)$/.test(line)) { results.push({ type: 'koreksi', user }); continue; }
     if (/^(backup|db|unduh)$/.test(line)) { results.push({ type: 'backup' }); continue; }
 
-    // --- TRANSAKSI KHUSUS (SET SALDO / PINDAH) ---
-    const mSaldo = line.match(/^set saldo (.+) (.+)$/); // Pakai (.+) untuk nama akun multi-word
+    // SET SALDO
+    const mSaldo = line.match(/^set saldo (.+) (.+)$/); 
     if (mSaldo) { 
         results.push({ 
             type: 'set_saldo', 
             user, 
-            account: normalizeAccount(mSaldo[1].trim()), 
+            account: normalizeAccount(mSaldo[1]), 
             amount: parseAmount(mSaldo[2]) 
         }); continue; 
     }
     
-    const mPindah = line.match(/^pindah (.+) (.+) (.+)$/); // Format: pindah [jml] [dari] [ke]
+    // TRANSFER
+    const mPindah = line.match(/^pindah (.+) (.+) (.+)$/); 
     if (mPindah) { 
         results.push({ 
             type: 'transfer_akun', 
             user, 
             amount: parseAmount(mPindah[1]), 
-            from: normalizeAccount(mPindah[2].trim()), 
-            to: normalizeAccount(mPindah[3].trim()),   
-            note: `Pindah ${normalizeAccount(mPindah[2].trim())} ke ${normalizeAccount(mPindah[3].trim())}` 
+            from: normalizeAccount(mPindah[2]), 
+            to: normalizeAccount(mPindah[3]),   
+            note: `Pindah ${normalizeAccount(mPindah[2])} ke ${normalizeAccount(mPindah[3])}` 
         }); continue; 
     }
 
-    // --- TRANSAKSI UMUM ---
+    // TRANSAKSI UMUM
     const tokens = line.split(/\s+/);
     const amountIdx = tokens.findIndex(t => /^[\d\.\+\-\*\/]+([.,]\d+)?[k|jt|rb]*$/i.test(t));
     
     if (amountIdx !== -1 && tokens.length >= 2) {
       const amountRaw = parseAmount(tokens[amountIdx]);
       const otherTokens = tokens.filter((_, i) => i !== amountIdx);
-      
-      // Ambil token terakhir sebagai akun, normalisasi
       let rawAccount = otherTokens.pop(); 
       let account = normalizeAccount(rawAccount);
-
       let note = otherTokens.join(' ');
       const category = detectCategory(note);
       if (!note) note = category;
-      
       const amount = (category === "Pendapatan") ? Math.abs(amountRaw) : -Math.abs(amountRaw);
       results.push({ type: 'tx', user, amount, note, account, category });
     }
