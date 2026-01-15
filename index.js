@@ -9,7 +9,7 @@ import { appendToSheet } from "./sheets.js";
 import { CATEGORIES } from "./categories.js";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo v4.2 Aktif"));
+app.get("/", (req, res) => res.send("Bot MaYo v4.3 Aktif"));
 const port = process.env.PORT || 3000;
 app.listen(port);
 
@@ -62,9 +62,9 @@ async function handleMessage(msg) {
   for (let p of results) {
     try {
       if (p.type === "list") {
-        let out = `📜 *MENU v4.2*\n${line}\n`;
-        out += `📉 *Transaksi*\n├ \`50k makan bca\` (Fleksibel)\n├ \`history\` / \`riwayat\`\n├ \`history 50\`\n└ \`koreksi\` / \`undo\`\n\n`;
-        out += `⚙️ *Laporan*\n├ \`rekap\` / \`rkp\`\n├ \`export pdf harian\`\n└ \`export pdf 2024-12\`\n${line}`;
+        let out = `📜 *MENU v4.3*\n${line}\n`;
+        out += `📉 *Transaksi*\n├ \`50k makan bca\` (Fleksibel)\n├ \`history\` / \`history 50\`\n├ \`koreksi\` (Undo)\n\n`;
+        out += `⚙️ *Laporan*\n├ \`rekap\` (Saldo)\n├ \`export pdf\` (AI Friendly)\n└ \`backup\`\n${line}`;
         replies.push(out);
       } 
       else if (p.type === "rekap") {
@@ -114,7 +114,7 @@ async function handleMessage(msg) {
            replies.push(`❌ Tidak ada data untuk periode: ${p.filter.title}`);
         } else {
            const filePath = await createPDF(data, p.filter.title);
-           await sendDocument(chatId, filePath);
+           await sendDocument(chatId, filePath, `📄 ${p.filter.title}`);
            fs.unlinkSync(filePath);
         }
       } 
