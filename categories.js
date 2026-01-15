@@ -1,6 +1,6 @@
 export const CATEGORIES = [
   { cat: "Pendapatan", keys: ["gaji", "bonus", "bns", "thr", "cashback", "refund", "transfer", "titip", "jual", "cair", "masuk", "cuan", "profit", "hadiah", "reimburse", "topup"] },
-  { cat: "Anak", keys: ["zoey", "anak", "bayi", "pampers", "pempes", "susu", "sufor", "ssu", "mainan", "sekolah", "spp", "vaksin", "imunisasi", "dokter anak", "bubur", "snack anak", "stroller"] },
+  { cat: "Anak", keys: ["zoey", "anak", "bayi", "pampers", "pempes", "susu", "sufor", "ssu", "mainan", "sekolah", "spp", "vaksin", "imunisasi", "dokter anak", "bubur", "snack anak", "stroller", "oi"] },
   { cat: "Makan", keys: ["makan", "mkn", "maem", "minum", "mnm", "jajan", "jjn", "kopi", "ngopi", "boba", "gofood", "grabfood", "shopeefood", "sarapan", "lunch", "dinner", "cemilan", "roti", "bakso", "mie", "warteg", "soto", "nasgor", "cafe", "resto", "galon", "aqua", "beras", "sayur", "daging", "ayam", "telur", "buah", "indomaret", "alfamart", "belanja bulanan"] },
   { cat: "Transport", keys: ["bensin", "bnsn", "pertalite", "pertamax", "parkir", "prkir", "tol", "etoll", "grab", "gojek", "gocar", "taksi", "kereta", "krl", "mrt", "bus", "tiket", "pesawat", "oli", "servis", "bengkel", "cuci", "pajak motor"] },
   { cat: "Belanja", keys: ["shopee", "shope", "tokped", "tokopedia", "tiktok", "beli", "baju", "celana", "sepatu", "tas", "skincare", "kosmetik", "makeup", "sabun", "shampo", "odol", "tisu", "gadget", "hp", "aksesoris", "hampers", "kado", "uniqlo"] },
