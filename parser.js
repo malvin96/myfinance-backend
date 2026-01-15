@@ -23,7 +23,7 @@ export function parseInput(text, senderId) {
 
     const cmd = line.split(' ')[0];
 
-    // --- PDF EXPORT (Prioritas Tinggi) ---
+    // PDF EXPORT
     if (line.startsWith('export pdf') || line.startsWith('pdf')) { 
       let filter = { type: 'current', title: 'Laporan Bulanan', val: null };
       if (line.includes('hari') || line.includes('daily')) {
@@ -35,48 +35,23 @@ export function parseInput(text, senderId) {
       results.push({ type: 'export_pdf', filter }); continue; 
     }
 
-    // --- REKAP / SALDO ---
-    if (/^(rekap|rkap|rekp|reakp|saldo|sldo|sld|cek|balance)$/.test(cmd)) { 
-      results.push({ type: 'rekap' }); continue; 
-    }
-
-    // --- HISTORY / RIWAYAT ---
-    // Menerima: "history", "riwayat", "hist", "list tx"
-    if (/^(history|hist|riwayat)$/.test(cmd) || line.startsWith('list tx')) {
+    // MENU UTAMA
+    if (/^(rekap|rkap|rekp|reakp|saldo|sldo|sld|cek|balance)$/.test(cmd)) { results.push({ type: 'rekap' }); continue; }
+    if (/^(history|hist|riwayat|list|ls)$/.test(cmd)) {
       const limitMatch = line.match(/\d+/); 
       const limit = limitMatch ? parseInt(limitMatch[0]) : 10;
       results.push({ type: 'history', limit }); continue; 
     }
+    if (/^(help|menu|tolong|\?)$/.test(cmd) || (cmd === 'list' && !line.includes('tx'))) { results.push({ type: 'list' }); continue; }
+    if (/^(koreksi|undo|batal|hapus|del|cancel)$/.test(line)) { results.push({ type: 'koreksi', user }); continue; }
+    if (/^(backup|db|unduh)$/.test(line)) { results.push({ type: 'backup' }); continue; }
 
-    // --- MENU / LIST ---
-    // Hanya menerima "list" jika berdiri sendiri atau "menu", "help"
-    if (/^(help|menu|tolong|\?)$/.test(cmd) || (cmd === 'list' && !line.includes('tx'))) { 
-      results.push({ type: 'list' }); continue; 
-    }
-
-    // --- KOREKSI ---
-    if (/^(koreksi|undo|batal|hapus|del|cancel)$/.test(line)) { 
-      results.push({ type: 'koreksi', user }); continue; 
-    }
-
-    // --- BACKUP ---
-    if (/^(backup|db|unduh)$/.test(line)) { 
-      results.push({ type: 'backup' }); continue; 
-    }
-
-    // --- SET SALDO ---
+    // TRANSAKSI
     const mSaldo = line.match(/^set saldo (\w+) (\d+[k|jt|rb]*)$/);
-    if (mSaldo) { 
-      results.push({ type: 'set_saldo', user, account: mSaldo[1], amount: parseAmount(mSaldo[2]) }); continue; 
-    }
-
-    // --- TRANSFER ---
+    if (mSaldo) { results.push({ type: 'set_saldo', user, account: mSaldo[1], amount: parseAmount(mSaldo[2]) }); continue; }
     const mPindah = line.match(/^pindah (\d+[k|jt|rb]*) (\w+) (\w+)$/);
-    if (mPindah) {
-      results.push({ type: 'transfer_akun', user, amount: parseAmount(mPindah[1]), from: mPindah[2], to: mPindah[3], note: `Pindah ${mPindah[2]} ke ${mPindah[3]}` }); continue;
-    }
+    if (mPindah) { results.push({ type: 'transfer_akun', user, amount: parseAmount(mPindah[1]), from: mPindah[2], to: mPindah[3], note: `Pindah ${mPindah[2]} ke ${mPindah[3]}` }); continue; }
 
-    // --- SMART TRANSAKSI ---
     const tokens = line.split(/\s+/);
     const amountIdx = tokens.findIndex(t => /^\d+([.,]\d+)?[k|jt|rb]*$/i.test(t));
     if (amountIdx !== -1 && tokens.length >= 2) {
