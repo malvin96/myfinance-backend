@@ -80,11 +80,34 @@ async function handleMessage(msg) {
   let replies = [];
   for (let p of results) {
     try {
+      // --- UPDATE UI MENU (V4.7 CLEAN) ---
       if (p.type === "list") {
-        let out = `📜 *MENU v4.7 (Flexible)*\n${line}\n`;
-        out += `📉 *Transaksi*\n├ \`50k makan bca\`\n├ \`kasih art 50k-12k cash\` (Hitung)\n├ \`history\`\n├ \`koreksi\` (Sync Sheet)\n\n`;
-        out += `⚙️ *Laporan*\n├ \`rekap\`\n├ \`export pdf\` (Hari/Minggu/Tahun)\n└ \`backup\`\n\n`;
-        out += `🆘 *Darurat*\nRender Reset? Kirim file .db backup ke sini.`;
+        let out = `🤖 **MENU BANTUAN**\n${line}\n`;
+        
+        out += `📝 **INPUT TRANSAKSI**\n`;
+        out += `Format: \`[Angka] [Ket] [Akun]\`\n`;
+        out += `• \`50k makan bca\`\n`;
+        out += `• \`gaji 15jt bca\`\n`;
+        out += `• \`50k-15k cash\` (Hitung)\n`;
+        out += `• \`pindah 500k bca gopay\`\n\n`;
+
+        out += `📂 **KATA KUNCI (KEYWORD)**\n`;
+        out += `• **Makan:** \`makan\`, \`jajan\`, \`kopi\`\n`;
+        out += `• **Transport:** \`bensin\`, \`parkir\`, \`grab\`\n`;
+        out += `• **Belanja:** \`shopee\`, \`beli\`, \`baju\`\n`;
+        out += `• **Tagihan:** \`listrik\`, \`pulsa\`, \`cc\`\n`;
+        out += `• **Investasi:** \`bibit\`, \`crypto\`, \`saham\`\n\n`;
+
+        out += `📊 **LAPORAN & DATA**\n`;
+        out += `• \`rekap\` (Cek Saldo)\n`;
+        out += `• \`history\` (10 Tx Terakhir)\n`;
+        out += `• \`export pdf\` (Bulan Ini)\n`;
+        out += `• \`export pdf minggu\` (7 Hari)\n\n`;
+
+        out += `🛠️ **SYSTEM**\n`;
+        out += `• \`koreksi\` (Undo & Sync)\n`;
+        out += `• \`backup\` (Download DB)`;
+        
         replies.push(out);
       } 
       else if (p.type === "rekap") {
