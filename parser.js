@@ -23,7 +23,7 @@ export function parseInput(text, senderId) {
 
     const cmd = line.split(' ')[0];
 
-    // PDF EXPORT
+    // EXPORT PDF
     if (line.startsWith('export pdf') || line.startsWith('pdf')) { 
       let filter = { type: 'current', title: 'Laporan Bulanan', val: null };
       if (line.includes('hari') || line.includes('daily')) {
@@ -35,7 +35,7 @@ export function parseInput(text, senderId) {
       results.push({ type: 'export_pdf', filter }); continue; 
     }
 
-    // MENU UTAMA
+    // MENU & FITUR LAIN
     if (/^(rekap|rkap|rekp|reakp|saldo|sldo|sld|cek|balance)$/.test(cmd)) { results.push({ type: 'rekap' }); continue; }
     if (/^(history|hist|riwayat|list|ls)$/.test(cmd)) {
       const limitMatch = line.match(/\d+/); 
