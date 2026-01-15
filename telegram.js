@@ -26,7 +26,7 @@ export async function sendDocument(chatId, filePath, caption = "") {
 
 export async function pollUpdates(handleMessage) {
   let offset = 0;
-  console.log("Bot MaYo v4.3 Siap Menerima Pesan...");
+  console.log("Bot MaYo Cloud Ready...");
   while (true) {
     try {
       const response = await fetch(`${TELEGRAM_API}/getUpdates?offset=${offset}&timeout=30`);
