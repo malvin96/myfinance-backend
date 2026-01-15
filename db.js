@@ -8,9 +8,7 @@ export function initDB() {
       user TEXT, account TEXT, amount REAL, category TEXT, note TEXT,
       timestamp DATETIME DEFAULT (DATETIME('now', 'localtime'))
     );
-    CREATE TABLE IF NOT EXISTS budgets (
-      category TEXT PRIMARY KEY, amount REAL
-    );
+    CREATE TABLE IF NOT EXISTS budgets (category TEXT PRIMARY KEY, amount REAL);
   `);
 }
 
@@ -29,17 +27,6 @@ export function deleteLastTx(user) {
   return last;
 }
 
-export function setBudget(category, amount) {
-  return db.prepare("INSERT OR REPLACE INTO budgets (category, amount) VALUES (?, ?)").run(category, amount);
-}
-
-export function getBudgetStatus(category) {
-  const budget = db.prepare("SELECT amount FROM budgets WHERE category = ?").get(category);
-  if (!budget) return null;
-  const spent = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE category = ? AND amount < 0 AND strftime('%m', timestamp) = strftime('%m', 'now')").get(category);
-  return { limit: budget.amount, spent: Math.abs(spent.total || 0) };
-}
-
 export function getBudgetSummary() {
   const budgets = db.prepare("SELECT * FROM budgets").all();
   return budgets.map(b => {
@@ -49,7 +36,7 @@ export function getBudgetSummary() {
 }
 
 export function getCashflowSummary() {
-  const income = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE amount > 0 AND category != 'Transfer' AND strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')").get();
+  const income = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE amount > 0 AND category != 'Transfer' AND category != 'Saldo Awal' AND strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')").get();
   const expense = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE amount < 0 AND category != 'Transfer' AND strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')").get();
   return { income: income.total || 0, expense: Math.abs(expense.total || 0) };
 }
@@ -60,22 +47,10 @@ export function getRekapLengkap() {
   return { rows, totalWealth: totalWealth.total || 0 };
 }
 
-export function getChartData() {
-  return db.prepare("SELECT category, ABS(SUM(amount)) as total FROM transactions WHERE amount < 0 AND strftime('%m', timestamp) = strftime('%m', 'now') GROUP BY category").all();
-}
-
 export function getTotalCCHariIni() {
-  const res = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account = 'cc' AND amount < 0 AND date(timestamp) = date('now', 'localtime')").get();
-  return res || { total: 0 };
+  return db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account = 'cc' AND amount < 0 AND date(timestamp) = date('now', 'localtime')").get() || { total: 0 };
 }
 
 export function getFilteredTransactions(filter) {
-  let query = "SELECT timestamp, user, account, category, amount, note FROM transactions";
-  let params = [];
-  if (filter.type === 'day') { query += " WHERE date(timestamp) = date(?)"; params.push(filter.val); }
-  else if (filter.type === 'month') { query += " WHERE strftime('%m-%Y', timestamp) = ?"; params.push(filter.val); }
-  else if (filter.type === 'week') { query += " WHERE timestamp >= date('now', '-7 days')"; }
-  else if (filter.type === 'current') { query += " WHERE strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')"; }
-  query += " ORDER BY timestamp DESC";
-  return db.prepare(query).all(...params);
+  return db.prepare("SELECT timestamp, user, account, category, amount, note FROM transactions ORDER BY timestamp DESC").all();
 }
