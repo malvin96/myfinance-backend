@@ -10,18 +10,20 @@ import { CATEGORIES } from "./categories.js";
 import fetch from "node-fetch";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo v4.8 Smart Active"));
+app.get("/", (req, res) => res.send("Bot MaYo v4.8 Final Synced"));
 const port = process.env.PORT || 3000;
 app.listen(port);
 
 initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━━";
+
+// [FINAL] Daftar akun liquid (Tanpa Mandiri)
 const LIQUID = ["cash", "bca", "ovo", "gopay", "shopeepay"];
 
 const pendingTxs = {};
 
-// AUTO BACKUP
+// AUTO BACKUP (23:59 WIB)
 cron.schedule('59 23 * * *', async () => {
   const date = new Date().toISOString().slice(0, 10);
   const file = `myfinance_backup_${date}.db`;
@@ -34,7 +36,7 @@ cron.schedule('59 23 * * *', async () => {
   } catch (e) { console.error(e); }
 }, { timezone: "Asia/Jakarta" });
 
-// REMINDER CC
+// REMINDER CC (21:00 WIB)
 cron.schedule('0 21 * * *', async () => {
   const cc = getTotalCCHariIni();
   if (cc && cc.total < 0) sendMessage(5023700044, `🔔 *REMINDER CC*\n${line}\nTagihan CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa dilunasi! 💳`); 
@@ -76,7 +78,7 @@ async function handleMessage(msg) {
 
   const results = parseInput(msg.text, senderId);
   
-  // --- FITUR ANTI-DIAM (ERROR HANDLING) ---
+  // ANTI-DIAM (ERROR HANDLING)
   if (!results.length) {
       return `⚠️ **SAYA TIDAK MENGERTI**\n\nFormat yang benar:\n\`[Angka] [Ket] [Akun]\`\n\nContoh:\n• \`50k makan bca\`\n• \`20rb bensin cash\`\n\nAtau ketik \`list\` untuk bantuan.`;
   }
@@ -148,12 +150,24 @@ async function handleMessage(msg) {
       } 
       else if (p.type === "set_saldo") {
         resetAccountBalance(p.user, p.account);
-        addTx({ ...p, category: "Saldo Awal" });
+        // [SYNC ENABLED] Kirim ke Sheet sebagai 'Saldo Awal'
+        const tx = { ...p, category: "Saldo Awal" };
+        addTx(tx);
+        appendToSheet(tx).catch(console.error);
         replies.push(`💰 **SET SALDO ${p.account.toUpperCase()} - ${fmt(p.amount)}**`);
       } 
       else if (p.type === "transfer_akun") {
-        addTx({ ...p, account: p.from, amount: -p.amount, category: "Transfer" });
-        addTx({ ...p, account: p.to, amount: p.amount, category: "Transfer" });
+        // [SYNC ENABLED] Kirim 2 Transaksi ke Sheet (Out & In)
+        const txOut = { ...p, account: p.from, amount: -p.amount, category: "Transfer" };
+        const txIn = { ...p, account: p.to, amount: p.amount, category: "Transfer" };
+        
+        addTx(txOut);
+        addTx(txIn);
+        
+        // Log ke Sheet
+        appendToSheet(txOut).catch(console.error);
+        appendToSheet(txIn).catch(console.error);
+
         replies.push(`🔄 *TRANSFER SUKSES*\n${p.from.toUpperCase()} ➔ ${p.to.toUpperCase()}: ${fmt(p.amount)}`);
       } 
       else if (p.type === "koreksi") {
