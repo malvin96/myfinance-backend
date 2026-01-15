@@ -1,25 +1,33 @@
 import { detectCategory } from "./categories.js";
 
-// --- KAMUS AKUN PINTAR (ALIAS) ---
+// --- KAMUS AKUN PINTAR (FINAL) ---
+// Sesuai request: Liquid & Aset dipisahkan definisinya di sini
 const ACCOUNT_MAP = {
+  // LIQUID
   'bca': ['bca', 'mbca', 'm-bca', 'qris', 'qr', 'scan', 'transfer', 'debit'],
   'cash': ['cash', 'tunai', 'dompet', 'uang', 'kes', 'cash'],
   'gopay': ['gopay', 'gojek', 'gopy'],
   'ovo': ['ovo'],
-  'shopeepay': ['shopeepay', 'shopee', 'spay', 'shope'],
-  'mandiri': ['mandiri', 'livin', 'm-banking'],
+  'shopeepay': ['shopeepay', 'shopee', 'spay', 'shope', 'shoppeepay'],
+  
+  // ASET / INVESTASI
   'bibit': ['bibit', 'reksadana', 'rdn'],
+  'mirrae': ['mirrae', 'mirae', 'mire', 'saham'],
+  'bca sekuritas': ['bca sekuritas', 'bcas', 'sekuritas'], // "sekuritas" otomatis jadi "bca sekuritas"
+  
+  // LAINNYA
   'cc': ['cc', 'kartu kredit', 'credit card']
 };
 
 function normalizeAccount(raw) {
   if (!raw) return 'Lainnya';
-  const lower = raw.toLowerCase().replace(/[^a-z0-9]/g, ''); // Hapus simbol aneh
+  const lower = raw.toLowerCase().replace(/[^a-z0-9 ]/g, ''); // Allow space for 'bca sekuritas'
   
   for (const [standard, aliases] of Object.entries(ACCOUNT_MAP)) {
+    // Cek jika input sama persis dengan standard ATAU ada di alias
     if (standard === lower || aliases.includes(lower)) return standard;
   }
-  return raw; // Jika tidak ada di kamus, kembalikan apa adanya (Fleksibel)
+  return raw; 
 }
 
 function parseAmount(str) {
@@ -94,25 +102,25 @@ export function parseInput(text, senderId) {
     if (/^(backup|db|unduh)$/.test(line)) { results.push({ type: 'backup' }); continue; }
 
     // --- TRANSAKSI KHUSUS (SET SALDO / PINDAH) ---
-    const mSaldo = line.match(/^set saldo (\w+) (.+)$/); 
+    const mSaldo = line.match(/^set saldo (.+) (.+)$/); // Pakai (.+) untuk nama akun multi-word
     if (mSaldo) { 
         results.push({ 
             type: 'set_saldo', 
             user, 
-            account: normalizeAccount(mSaldo[1]), // Pakai Normalisasi 
+            account: normalizeAccount(mSaldo[1].trim()), 
             amount: parseAmount(mSaldo[2]) 
         }); continue; 
     }
     
-    const mPindah = line.match(/^pindah (.+) (\w+) (\w+)$/); 
+    const mPindah = line.match(/^pindah (.+) (.+) (.+)$/); // Format: pindah [jml] [dari] [ke]
     if (mPindah) { 
         results.push({ 
             type: 'transfer_akun', 
             user, 
             amount: parseAmount(mPindah[1]), 
-            from: normalizeAccount(mPindah[2]), // Pakai Normalisasi
-            to: normalizeAccount(mPindah[3]),   // Pakai Normalisasi
-            note: `Pindah ${normalizeAccount(mPindah[2])} ke ${normalizeAccount(mPindah[3])}` 
+            from: normalizeAccount(mPindah[2].trim()), 
+            to: normalizeAccount(mPindah[3].trim()),   
+            note: `Pindah ${normalizeAccount(mPindah[2].trim())} ke ${normalizeAccount(mPindah[3].trim())}` 
         }); continue; 
     }
 
@@ -124,7 +132,7 @@ export function parseInput(text, senderId) {
       const amountRaw = parseAmount(tokens[amountIdx]);
       const otherTokens = tokens.filter((_, i) => i !== amountIdx);
       
-      // Ambil kata terakhir sebagai akun, lalu NORMALISASI
+      // Ambil token terakhir sebagai akun, normalisasi
       let rawAccount = otherTokens.pop(); 
       let account = normalizeAccount(rawAccount);
 
