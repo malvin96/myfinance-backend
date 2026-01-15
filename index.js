@@ -10,7 +10,7 @@ import { CATEGORIES } from "./categories.js";
 import fetch from "node-fetch";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo v4.8 Final Synced"));
+app.get("/", (req, res) => res.send("Bot MaYo v4.9 Final Fixed"));
 const port = process.env.PORT || 3000;
 app.listen(port);
 
@@ -18,8 +18,9 @@ initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━━";
 
-// [FINAL] Daftar akun liquid (Tanpa Mandiri)
+// [KUNCI] Definisi Akun Sesuai Request
 const LIQUID = ["cash", "bca", "ovo", "gopay", "shopeepay"];
+const ASSETS = ["bibit", "mirrae", "bca sekuritas"];
 
 const pendingTxs = {};
 
@@ -102,11 +103,21 @@ async function handleMessage(msg) {
         let out = `📊 *LAPORAN KEUANGAN*\n${line}\n`;
         [...new Set(d.rows.map(r => r.user))].forEach(u => {
           out += `\n*${u === 'M' ? '🧔 MALVIN' : '👩 YOVITA'}*\n`;
+          
+          // SECTION 1: LIQUID
           const liq = d.rows.filter(r => r.user === u && LIQUID.includes(r.account));
           if (liq.length > 0) {
             out += ` 💧 *Liquid*\n`;
             liq.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(10)}\`: \`${fmt(a.balance).padStart(14)}\`\n`);
           }
+
+          // SECTION 2: ASSETS
+          const ast = d.rows.filter(r => r.user === u && ASSETS.includes(r.account));
+          if (ast.length > 0) {
+            out += ` 💼 *Aset*\n`;
+            ast.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(10)}\`: \`${fmt(a.balance).padStart(14)}\`\n`);
+          }
+
           const total = d.rows.filter(r => r.user === u && r.account !== 'cc').reduce((a, b) => a + b.balance, 0);
           out += ` └ *Total Net:* \`${fmt(total).padStart(14)}\`\n`;
         });
