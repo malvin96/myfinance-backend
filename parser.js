@@ -1,6 +1,6 @@
 import { detectCategory } from "./categories.js";
 
-// --- KAMUS AKUN PINTAR (FINAL v5.1) ---
+// --- KAMUS AKUN PINTAR (FINAL v5.2) ---
 const ACCOUNT_MAP = {
   // LIQUID
   'bca': ['bca', 'mbca', 'm-bca', 'qris', 'qr', 'scan', 'transfer', 'debit'],
@@ -20,13 +20,13 @@ const ACCOUNT_MAP = {
 
 function normalizeAccount(raw) {
   if (!raw) return 'Lainnya';
-  // Fix: Replace multiple spaces with single space & remove weird chars
+  // Hapus karakter aneh dan spasi ganda
   const lower = raw.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); 
   
   for (const [standard, aliases] of Object.entries(ACCOUNT_MAP)) {
     if (standard === lower || aliases.includes(lower)) return standard;
   }
-  return lower; // Return lower instead of raw to ensure consistency
+  return lower; 
 }
 
 function parseAmount(str) {
