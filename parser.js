@@ -96,7 +96,8 @@ export function parseInput(text, senderId) {
     if (/^(koreksi|undo|batal|hapus|del|cancel)$/.test(line)) { results.push({ type: 'koreksi', user }); continue; }
     if (/^(backup|db|unduh)$/.test(line)) { results.push({ type: 'backup' }); continue; }
 
-    const mSaldo = line.match(/^set\s+saldo\s+(.+)\s+(.+)$/); 
+    // [UPDATE] SET SALDO (Support Alias 'ss')
+    const mSaldo = line.match(/^(?:set\s+saldo|ss)\s+(.+)\s+(.+)$/); 
     if (mSaldo) { 
         results.push({ 
             type: 'set_saldo', 
@@ -106,7 +107,8 @@ export function parseInput(text, senderId) {
         }); continue; 
     }
     
-    const mPindah = line.match(/^pindah (.+) (.+) (.+)$/); 
+    // [UPDATE] TRANSFER (Support Alias 'tf', 'mv')
+    const mPindah = line.match(/^(?:pindah|tf|mv|transfer)\s+(.+)\s+(.+)\s+(.+)$/); 
     if (mPindah) { 
         results.push({ 
             type: 'transfer_akun', 
