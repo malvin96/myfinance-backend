@@ -3,49 +3,55 @@ import fs from 'fs';
 import cron from 'node-cron';
 import { pollUpdates, sendMessage, sendDocument, getFileLink } from "./telegram.js";
 import { parseInput } from "./parser.js";
-import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, resetAccountBalance, getBudgetSummary, getCashflowSummary, deleteLastTx, getFilteredTransactions } from "./db.js";
+import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, resetAccountBalance, getBudgetSummary, getCashflowSummary, deleteLastTx, getFilteredTransactions, rebuildDatabase } from "./db.js";
 import { createPDF } from "./export.js";
-import { appendToSheet } from "./sheets.js";
+import { appendToSheet, downloadFromSheet } from "./sheets.js";
 import { CATEGORIES } from "./categories.js";
 import fetch from "node-fetch";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo v5.3 Ultimate Active"));
+app.get("/", (req, res) => res.send("Bot MaYo v5.5 Sync Active"));
 const port = process.env.PORT || 3000;
 app.listen(port);
 
+// --- 1. INISIALISASI & AUTO-SYNC ---
 initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━━";
 
-// [KUNCI] DAFTAR AKUN LENGKAP
+// [KUNCI] AUTO-SYNC: Tarik data dari Cloud saat Bot Bangun/Restart
+(async () => {
+  const txs = await downloadFromSheet();
+  if (txs.length > 0) {
+    const count = rebuildDatabase(txs);
+    console.log(`✅ DATABASE PULIH: ${count} transaksi berhasil disinkronkan dari Cloud.`);
+  } else {
+    console.log("⚠️ Sheet Kosong atau Gagal Sync (Data Lokal 0).");
+  }
+})();
+
 const LIQUID = ["cash", "bca", "ovo", "gopay", "shopeepay"];
 const ASSETS = ["bibit", "mirrae", "bca sekuritas"];
 const ALL_ACCOUNTS = [...LIQUID, ...ASSETS];
 
 const pendingTxs = {};
 
-// --- AUTO BACKUP & KEEP-ALIVE (Setiap 14 Menit 55 Detik) ---
-// Cron: Detik 55, Setiap Menit ke-14 (0, 14, 28, 42, 56)
-// Tujuannya agar Render TIDAK SLEEP dan Data Aman
-cron.schedule('55 */14 * * * *', async () => {
+// --- 2. BACKUP 14 MENIT 58 DETIK (KEEP-ALIVE SILENT) ---
+// Cron Syntax: Detik 58, Setiap Menit ke-14 (0, 14, 28, 42, 56)
+cron.schedule('58 */14 * * * *', async () => {
   const date = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
   const file = `myfinance_backup.db`; 
-  
   try {
     if (fs.existsSync('myfinance.db')) {
       fs.copyFileSync('myfinance.db', file);
-      
-      // Param ke-4 'true' artinya SILENT (Tanpa Notifikasi Suara)
-      // File dikirim ke ID Telegram Anda (5023700044)
+      // Silent: True (Hening) - Kirim ke Owner ID
       await sendDocument(5023700044, file, `🔄 Auto-Backup (${date})`, true);
-      
       fs.unlinkSync(file);
     }
   } catch (e) { console.error("Backup Error:", e); }
 }, { timezone: "Asia/Jakarta" });
 
-// REMINDER CC (21:00 WIB)
+// --- 3. REMINDER CC (21:00 WIB) ---
 cron.schedule('0 21 * * *', async () => {
   const cc = getTotalCCHariIni();
   if (cc && cc.total < 0) sendMessage(5023700044, `🔔 *REMINDER CC*\n${line}\nTagihan CC hari ini: *${fmt(Math.abs(cc.total))}*\nJangan lupa dilunasi! 💳`); 
@@ -56,7 +62,7 @@ async function handleMessage(msg) {
   const senderId = msg.from.id;
   if (![5023700044, 8469259152].includes(senderId)) return;
   
-  // RESTORE LOGIC
+  // RESTORE MANUAL (Cadangan darurat, meskipun Auto-Sync sudah aktif)
   if (msg.document && (msg.document.file_name.endsWith('.db') || msg.document.file_name.endsWith('.sqlite'))) {
     sendMessage(chatId, "⏳ **MENDETEKSI DATABASE...**\nSedang memulihkan data...");
     const link = await getFileLink(msg.document.file_id);
@@ -87,7 +93,6 @@ async function handleMessage(msg) {
 
   const results = parseInput(msg.text, senderId);
   
-  // ANTI-DIAM (ERROR HANDLING)
   if (!results.length) {
       return `⚠️ **SAYA TIDAK MENGERTI**\n\nFormat yang benar:\n\`[Angka] [Ket] [Akun]\`\n\nContoh:\n• \`50k makan bca\`\n• \`20rb bensin cash\`\n\nAtau ketik \`list\` untuk bantuan.`;
   }
@@ -95,33 +100,14 @@ async function handleMessage(msg) {
   let replies = [];
   for (let p of results) {
     try {
-      // --- 1. MENU BANTUAN (UI BARU: CHEATSHEET STYLE) ---
       if (p.type === "list") {
         let out = `🤖 **CHEATSHEET MAYO**\n${line}\n`;
-        
-        out += `📝 *TRANSAKSI CEPAT*\n`;
-        out += `• \`50k makan bca\`\n`;
-        out += `• \`20rb bensin cash\`\n`;
-        out += `_(Format: Nominal - Ket - Akun)_\n\n`;
-        
-        out += `🔧 *TOOLS*\n`;
-        out += `• \`set saldo [akun] [jml]\`\n`;
-        out += `• \`pindah [jml] [dari] [ke]\`\n`;
-        out += `• \`koreksi\` (Undo Tx Terakhir)\n`;
-        out += `• \`backup\` (Ambil DB Manual)\n\n`;
-
-        out += `📊 *LAPORAN*\n`;
-        out += `• \`rekap\` (Cek Saldo)\n`;
-        out += `• \`history\` (Riwayat)\n`;
-        out += `• \`export pdf\` (Laporan)\n\n`;
-        
-        out += `🏦 *DAFTAR AKUN*\n`;
-        out += `💧 \`${LIQUID.map(a => a.toUpperCase()).join(", ")}\`\n`;
-        out += `💼 \`${ASSETS.map(a => a.toUpperCase()).join(", ")}\``;
-        
+        out += `📝 *TRANSAKSI CEPAT*\n• \`50k makan bca\`\n• \`20rb bensin cash\`\n_(Format: Nominal - Ket - Akun)_\n\n`;
+        out += `🔧 *TOOLS*\n• \`set saldo [akun] [jml]\`\n• \`pindah [jml] [dari] [ke]\`\n• \`koreksi\` (Undo)\n• \`backup\` (Manual DB)\n\n`;
+        out += `📊 *LAPORAN*\n• \`rekap\` (Cek Saldo)\n• \`history\` (Riwayat)\n• \`export pdf\` (Laporan)\n\n`;
+        out += `🏦 *DAFTAR AKUN*\n💧 \`${LIQUID.map(a => a.toUpperCase()).join(", ")}\`\n💼 \`${ASSETS.map(a => a.toUpperCase()).join(", ")}\``;
         replies.push(out);
       } 
-      // --- 2. REKAP SALDO ---
       else if (p.type === "rekap") {
         const d = getRekapLengkap();
         const cf = getCashflowSummary();
@@ -130,25 +116,21 @@ async function handleMessage(msg) {
         let out = `📊 *LAPORAN KEUANGAN*\n${line}\n`;
         [...new Set(d.rows.map(r => r.user))].forEach(u => {
           out += `\n*${u === 'M' ? '🧔 MALVIN' : '👩 YOVITA'}*\n`;
-          
           const liq = d.rows.filter(r => r.user === u && LIQUID.includes(r.account));
           if (liq.length > 0) {
             out += ` 💧 *Liquid*\n`;
             liq.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(15)}\`: \`${fmt(a.balance).padStart(14)}\`\n`);
           }
-
           const ast = d.rows.filter(r => r.user === u && ASSETS.includes(r.account));
           if (ast.length > 0) {
             out += ` 💼 *Aset*\n`;
             ast.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(15)}\`: \`${fmt(a.balance).padStart(14)}\`\n`);
           }
-
           const other = d.rows.filter(r => r.user === u && !LIQUID.includes(r.account) && !ASSETS.includes(r.account) && r.account !== 'cc');
           if (other.length > 0) {
             out += ` ❓ *Lainnya*\n`;
             other.forEach(a => out += `  ├ \`${a.account.toUpperCase().padEnd(15)}\`: \`${fmt(a.balance).padStart(14)}\`\n`);
           }
-
           const total = d.rows.filter(r => r.user === u && r.account !== 'cc').reduce((a, b) => a + b.balance, 0);
           out += ` └ *Total Net:* \`${fmt(total).padStart(14)}\`\n`;
         });
@@ -160,12 +142,10 @@ async function handleMessage(msg) {
         out += `\n💳 *CC HARI INI:* \`${fmt(Math.abs(cc.total || 0))}\`\n${line}\n🌍 *NET WORTH:* **${fmt(d.totalWealth)}**\n`;
         replies.push(out);
       } 
-      // --- 3. HISTORY ---
       else if (p.type === "history") {
          const filter = { type: 'current', val: null }; 
          let allTxs = [];
          try { allTxs = getFilteredTransactions(filter); } catch (e) { allTxs = []; }
-
          if (!allTxs || allTxs.length === 0) {
              replies.push("📭 **BELUM ADA TRANSAKSI**\nBelum ada data tercatat bulan ini.");
          } else {
@@ -179,7 +159,6 @@ async function handleMessage(msg) {
             replies.push(out);
          }
       }
-      // --- 4. EXPORT PDF ---
       else if (p.type === "export_pdf") {
         const data = getFilteredTransactions(p.filter);
         if (!data || data.length === 0) replies.push(`❌ Tidak ada data: ${p.filter.title}`);
@@ -189,31 +168,25 @@ async function handleMessage(msg) {
            fs.unlinkSync(filePath);
         }
       } 
-      // --- 5. BACKUP MANUAL ---
       else if (p.type === "backup") {
         const file = `myfinance_manual.db`;
         fs.copyFileSync('myfinance.db', file);
         await sendDocument(chatId, file, `✅ **BACKUP MANUAL SELESAI**`);
         fs.unlinkSync(file);
       } 
-      // --- 6. SET SALDO ---
       else if (p.type === "set_saldo") {
         resetAccountBalance(p.user, p.account);
         const tx = { ...p, category: "Saldo Awal" };
         addTx(tx);
         appendToSheet(tx).catch(console.error);
-        
-        // Info Akun Aktif
         const rekap = getRekapLengkap();
         const filledAccounts = rekap.rows.filter(r => r.user === p.user).map(r => r.account);
         const unsetAccounts = ALL_ACCOUNTS.filter(acc => !filledAccounts.includes(acc) && acc !== p.account);
-        
         let msg = `💰 **SET SALDO ${p.account.toUpperCase()} SUKSES**\n└ Saldo: ${fmt(p.amount)}`;
         if (unsetAccounts.length > 0) msg += `\n\n⚠️ **AKUN BELUM DI-SET:**\n${unsetAccounts.map(a => `• \`${a.toUpperCase()}\``).join('\n')}`;
         else msg += `\n\n✅ **Semua akun sudah aktif!**`;
         replies.push(msg);
       } 
-      // --- 7. TRANSFER AKUN ---
       else if (p.type === "transfer_akun") {
         const txOut = { ...p, account: p.from, amount: -p.amount, category: "Transfer" };
         const txIn = { ...p, account: p.to, amount: p.amount, category: "Transfer" };
@@ -223,7 +196,6 @@ async function handleMessage(msg) {
         appendToSheet(txIn).catch(console.error);
         replies.push(`🔄 *TRANSFER SUKSES*\n${p.from.toUpperCase()} ➔ ${p.to.toUpperCase()}: ${fmt(p.amount)}`);
       } 
-      // --- 8. KOREKSI ---
       else if (p.type === "koreksi") {
         const lastTx = deleteLastTx(p.user);
         if (lastTx) {
@@ -238,7 +210,6 @@ async function handleMessage(msg) {
           replies.push("❌ Tidak ada transaksi untuk dikoreksi.");
         }
       }
-      // --- 9. TRANSAKSI BIASA ---
       else if (p.type === "tx") {
         if (p.category === "Lainnya") {
           pendingTxs[chatId] = p;
