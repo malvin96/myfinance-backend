@@ -1,6 +1,6 @@
 import { detectCategory } from "./categories.js";
 
-// --- KAMUS AKUN PINTAR (FINAL v5.2) ---
+// --- KAMUS AKUN PINTAR ---
 const ACCOUNT_MAP = {
   // LIQUID
   'bca': ['bca', 'mbca', 'm-bca', 'qris', 'qr', 'scan', 'transfer', 'debit'],
@@ -9,7 +9,7 @@ const ACCOUNT_MAP = {
   'ovo': ['ovo'],
   'shopeepay': ['shopeepay', 'shopee', 'spay', 'shope', 'shoppeepay'],
   
-  // ASET / INVESTASI
+  // ASET
   'bibit': ['bibit', 'reksadana', 'rdn'],
   'mirrae': ['mirrae', 'mirae', 'mire', 'saham', 'sekuritas'],
   'bca sekuritas': ['bca sekuritas', 'bcas', 'bca s', 'bcasekuritas'], 
@@ -20,7 +20,6 @@ const ACCOUNT_MAP = {
 
 function normalizeAccount(raw) {
   if (!raw) return 'Lainnya';
-  // Hapus karakter aneh dan spasi ganda
   const lower = raw.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); 
   
   for (const [standard, aliases] of Object.entries(ACCOUNT_MAP)) {
@@ -83,25 +82,21 @@ export function parseInput(text, senderId) {
       results.push({ type: 'export_pdf', filter }); continue; 
     }
 
-    // MENU
     if (/^(help|menu|tolong|list|ls|\?)$/.test(cmd) && !line.includes('tx')) { 
       results.push({ type: 'list' }); continue; 
     }
 
-    // HISTORY
     if (/^(history|hist|riwayat)$/.test(cmd)) {
       const limitMatch = line.match(/\d+/); 
       const limit = limitMatch ? parseInt(limitMatch[0]) : 10;
       results.push({ type: 'history', limit }); continue; 
     }
 
-    // FITUR LAIN
     if (/^(rekap|rkap|rekp|reakp|saldo|sldo|sld|cek|balance)$/.test(cmd)) { results.push({ type: 'rekap' }); continue; }
     if (/^(koreksi|undo|batal|hapus|del|cancel)$/.test(line)) { results.push({ type: 'koreksi', user }); continue; }
     if (/^(backup|db|unduh)$/.test(line)) { results.push({ type: 'backup' }); continue; }
 
-    // SET SALDO
-    const mSaldo = line.match(/^set saldo (.+) (.+)$/); 
+    const mSaldo = line.match(/^set\s+saldo\s+(.+)\s+(.+)$/); 
     if (mSaldo) { 
         results.push({ 
             type: 'set_saldo', 
@@ -111,7 +106,6 @@ export function parseInput(text, senderId) {
         }); continue; 
     }
     
-    // TRANSFER
     const mPindah = line.match(/^pindah (.+) (.+) (.+)$/); 
     if (mPindah) { 
         results.push({ 
@@ -124,7 +118,6 @@ export function parseInput(text, senderId) {
         }); continue; 
     }
 
-    // TRANSAKSI UMUM
     const tokens = line.split(/\s+/);
     const amountIdx = tokens.findIndex(t => /^[\d\.\+\-\*\/]+([.,]\d+)?[k|jt|rb]*$/i.test(t));
     
