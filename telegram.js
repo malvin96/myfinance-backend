@@ -14,19 +14,37 @@ export async function sendMessage(chatId, text) {
   } catch (error) { console.error("Telegram SendMessage Error:", error); }
 }
 
-// UPDATE: Tambah parameter 'silent' (Default false)
+// [FITUR BARU] HAPUS PESAN LAMA
+export async function deleteMessage(chatId, messageId) {
+  try {
+    await fetch(`${TELEGRAM_API}/deleteMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
+    });
+  } catch (error) { 
+    // Error diabaikan jika pesan sudah hilang duluan
+    console.error("Gagal hapus pesan (mungkin sudah terhapus):", error.message); 
+  }
+}
+
+// UPDATE: Return Response agar Index.js bisa mencatat ID Pesan
 export async function sendDocument(chatId, filePath, caption = "", silent = false) {
   try {
     const form = new FormData();
     form.append('chat_id', chatId);
     form.append('caption', caption);
     form.append('parse_mode', 'Markdown');
-    // Fitur Silent Mode: True = Tanpa Suara
+    // Fitur Silent Mode: True = Tanpa Notifikasi Suara
     if (silent) form.append('disable_notification', 'true'); 
     form.append('document', fs.createReadStream(filePath));
     
-    await fetch(`${TELEGRAM_API}/sendDocument`, { method: "POST", body: form });
-  } catch (error) { console.error("Telegram SendDocument Error:", error); }
+    const response = await fetch(`${TELEGRAM_API}/sendDocument`, { method: "POST", body: form });
+    return await response.json(); // Mengembalikan data pesan (termasuk message_id)
+  } catch (error) { 
+    console.error("Telegram SendDocument Error:", error); 
+    return null;
+  }
 }
 
 export async function getFileLink(fileId) {
@@ -42,7 +60,7 @@ export async function getFileLink(fileId) {
 
 export async function pollUpdates(handleMessage) {
   let offset = 0;
-  console.log("Bot MaYo v5.5 Sync Ready...");
+  console.log("Bot MaYo v5.5 CleanSync Ready...");
   while (true) {
     try {
       const response = await fetch(`${TELEGRAM_API}/getUpdates?offset=${offset}&timeout=30`);
