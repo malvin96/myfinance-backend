@@ -21,7 +21,7 @@ export async function sendDocument(chatId, filePath, caption = "", silent = fals
     form.append('chat_id', chatId);
     form.append('caption', caption);
     form.append('parse_mode', 'Markdown');
-    // Fitur Silent Mode: True = Tanpa Suara (Notifikasi hening)
+    // Fitur Silent Mode: True = Tanpa Suara
     if (silent) form.append('disable_notification', 'true'); 
     form.append('document', fs.createReadStream(filePath));
     
@@ -42,7 +42,7 @@ export async function getFileLink(fileId) {
 
 export async function pollUpdates(handleMessage) {
   let offset = 0;
-  console.log("Bot MaYo v5.3 Ultimate Ready...");
+  console.log("Bot MaYo v5.5 Sync Ready...");
   while (true) {
     try {
       const response = await fetch(`${TELEGRAM_API}/getUpdates?offset=${offset}&timeout=30`);
