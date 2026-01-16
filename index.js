@@ -91,7 +91,7 @@ async function handleMessage(msg) {
     return `👋 **Siap, Bos ${senderId === 5023700044 ? 'Malvin' : 'Yovita'}!**\nKetik \`menu\` untuk bantuan.`;
   }
 
-  // PENDING TX (Konfirmasi Kategori)
+  // [UPDATE] PENDING TX HANDLING (Support 'Batal')
   if (pendingTxs[chatId]) {
     const matched = CATEGORIES.find(c => c.cat.toLowerCase() === text);
     if (matched) {
@@ -99,8 +99,11 @@ async function handleMessage(msg) {
       if (p.category === "Pendapatan") p.amount = Math.abs(p.amount);
       delete pendingTxs[chatId]; addTx(p); appendToSheet(p).catch(console.error);
       return `✅ Tersimpan: **${p.category}** - ${fmt(Math.abs(p.amount))}`;
-    } else if (text === "batal") { delete pendingTxs[chatId]; return "❌ Dibatalkan."; }
-    else { return `⚠️ Pilih kategori:\n${CATEGORIES.map(c => `\`${c.cat.toLowerCase()}\``).join(', ')}`; }
+    } else if (text === "batal" || text === "cancel") { 
+        delete pendingTxs[chatId]; 
+        return "❌ **TRANSAKSI DIBATALKAN**\nData dihapus dari memori."; 
+    }
+    else { return `⚠️ Pilih kategori:\n${CATEGORIES.map(c => `\`${c.cat.toLowerCase()}\``).join(', ')}\n\nAtau ketik **\`batal\`** jika salah input.`; }
   }
 
   const results = parseInput(msg.text, senderId);
@@ -115,8 +118,8 @@ async function handleMessage(msg) {
       if (p.type === "list") {
         let out = `🤖 **MENU PERINTAH**\n${line}\n`;
         out += `📝 \`50rb makan bca\` (Catat)\n`;
-        out += `🔧 \`set saldo [akun] [jml]\`\n`;
-        out += `🔄 \`pindah [jml] [dari] [ke]\`\n`;
+        out += `🔧 \`ss [akun] [jml]\` (Set Saldo)\n`;
+        out += `🔄 \`tf [jml] [dari] [ke]\` (Transfer)\n`;
         out += `↩️ \`koreksi\` (Undo)\n`;
         out += `📊 \`rekap\` | \`history\` | \`pdf\`\n`;
         out += `💾 \`backup\` (Manual DB)`;
@@ -127,7 +130,6 @@ async function handleMessage(msg) {
         const cf = getCashflowSummary();
         const budgets = getBudgetSummary();
         
-        // UI REKAP (FLAT & SUB-TOTAL)
         let out = `📊 **REKAP KEUANGAN**\n${line}\n`;
         
         [...new Set(d.rows.map(r => r.user))].forEach(u => {
@@ -139,7 +141,7 @@ async function handleMessage(msg) {
             const totalLiq = liq.reduce((a,b) => a + b.balance, 0);
             out += `💧 Liquid:\n`;
             out += liq.map(a => `${a.account.toUpperCase()}: \`${fmt(a.balance)}\``).join('\n');
-            out += `\n**Total ${u} Liquid : ${fmt(totalLiq)}**\n\n`; // Subtotal
+            out += `\n**Total ${u} Liquid : ${fmt(totalLiq)}**\n\n`; 
           }
           
           // ASSETS
@@ -148,7 +150,7 @@ async function handleMessage(msg) {
             const totalAst = ast.reduce((a,b) => a + b.balance, 0);
             out += `💼 Aset:\n`;
             out += ast.map(a => `${a.account.toUpperCase()}: \`${fmt(a.balance)}\``).join('\n');
-            out += `\n**Total ${u} Asset : ${fmt(totalAst)}**\n`; // Subtotal
+            out += `\n**Total ${u} Asset : ${fmt(totalAst)}**\n`; 
           }
           out += `\n`;
         });
@@ -182,7 +184,6 @@ async function handleMessage(msg) {
                const icon = t.amount > 0 ? "📈" : "📉";
                const dateShort = t.timestamp.substring(8,10); 
                const noteShort = t.note.length > 15 ? t.note.substring(0, 15)+".." : t.note;
-               // UI HISTORY (FLAT ONE-LINER)
                out += `\`${dateShort}\` ${icon} ${noteShort} : \`${fmt(Math.abs(t.amount))}\`\n`;
             });
             replies.push(out);
@@ -199,7 +200,6 @@ async function handleMessage(msg) {
         const targetList = p.user === 'M' ? ACCOUNTS_M : ACCOUNTS_Y; 
         const unsetAccounts = targetList.filter(acc => !filledAccounts.includes(acc) && acc !== p.account);
         
-        // UI SET SALDO (COMPACT WARNING)
         let msg = `✅ **SALDO DIUPDATE**\n`;
         msg += `👤 ${p.user === 'M' ? 'Malvin' : 'Yovita'} | 🏦 ${p.account.toUpperCase()}\n`;
         msg += `💰 **${fmt(p.amount)}**\n${line}\n`;
@@ -247,11 +247,11 @@ async function handleMessage(msg) {
       else if (p.type === "tx") {
         if (p.category === "Lainnya") {
           pendingTxs[chatId] = p;
-          replies.push(`❓ **Kategori?** "${p.note}"\nPilih: ${CATEGORIES.map(c => `\`${c.cat.toLowerCase()}\``).join(', ')}`);
+          // [UPDATE] PROMPT UNTUK BATAL
+          replies.push(`❓ **Kategori?** "${p.note}"\nPilih: ${CATEGORIES.map(c => `\`${c.cat.toLowerCase()}\``).join(', ')}\n\nAtau ketik **\`batal\`**`);
         } else {
           addTx(p);
           appendToSheet(p).catch(console.error);
-          // UI TRANSACTION (SIMPLE)
           replies.push(`✅ **${p.category.toUpperCase()}**\n${p.note} : \`${fmt(Math.abs(p.amount))}\`\n(${p.account.toUpperCase()})`);
         }
       }
