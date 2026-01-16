@@ -14,13 +14,17 @@ export async function sendMessage(chatId, text) {
   } catch (error) { console.error("Telegram SendMessage Error:", error); }
 }
 
-export async function sendDocument(chatId, filePath, caption = "") {
+// UPDATE: Tambah parameter 'silent' (Default false)
+export async function sendDocument(chatId, filePath, caption = "", silent = false) {
   try {
     const form = new FormData();
     form.append('chat_id', chatId);
     form.append('caption', caption);
     form.append('parse_mode', 'Markdown');
+    // Fitur Silent Mode: True = Tanpa Suara (Notifikasi hening)
+    if (silent) form.append('disable_notification', 'true'); 
     form.append('document', fs.createReadStream(filePath));
+    
     await fetch(`${TELEGRAM_API}/sendDocument`, { method: "POST", body: form });
   } catch (error) { console.error("Telegram SendDocument Error:", error); }
 }
@@ -38,7 +42,7 @@ export async function getFileLink(fileId) {
 
 export async function pollUpdates(handleMessage) {
   let offset = 0;
-  console.log("Bot MaYo v4.6 Ultimate Ready...");
+  console.log("Bot MaYo v5.3 Ultimate Ready...");
   while (true) {
     try {
       const response = await fetch(`${TELEGRAM_API}/getUpdates?offset=${offset}&timeout=30`);
