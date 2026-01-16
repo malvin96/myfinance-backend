@@ -1,7 +1,7 @@
 import express from "express";
 import fs from 'fs';
 import cron from 'node-cron';
-import { pollUpdates, sendMessage, sendDocument, getFileLink } from "./telegram.js";
+import { pollUpdates, sendMessage, sendDocument, getFileLink, deleteMessage } from "./telegram.js";
 import { parseInput } from "./parser.js";
 import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, resetAccountBalance, getBudgetSummary, getCashflowSummary, deleteLastTx, getFilteredTransactions, rebuildDatabase } from "./db.js";
 import { createPDF } from "./export.js";
@@ -10,7 +10,7 @@ import { CATEGORIES } from "./categories.js";
 import fetch from "node-fetch";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo v5.5 Sync Active"));
+app.get("/", (req, res) => res.send("Bot MaYo v5.5 CleanSync Active"));
 const port = process.env.PORT || 3000;
 app.listen(port);
 
@@ -36,16 +36,32 @@ const ALL_ACCOUNTS = [...LIQUID, ...ASSETS];
 
 const pendingTxs = {};
 
-// --- 2. BACKUP 14 MENIT 58 DETIK (KEEP-ALIVE SILENT) ---
-// Cron Syntax: Detik 58, Setiap Menit ke-14 (0, 14, 28, 42, 56)
+// --- 2. BACKUP 14 MENIT 58 DETIK + AUTO CLEANUP ---
+// Variabel untuk menyimpan ID pesan backup terakhir
+let lastBackupMessageId = null; 
+
+// Cron: Detik 58, Setiap Menit ke-14 (0, 14, 28, 42, 56)
 cron.schedule('58 */14 * * * *', async () => {
   const date = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
   const file = `myfinance_backup.db`; 
+  
   try {
     if (fs.existsSync('myfinance.db')) {
       fs.copyFileSync('myfinance.db', file);
-      // Silent: True (Hening) - Kirim ke Owner ID
-      await sendDocument(5023700044, file, `🔄 Auto-Backup (${date})`, true);
+      
+      // A. HAPUS BACKUP LAMA (Agar Chat Rapi)
+      if (lastBackupMessageId) {
+        await deleteMessage(5023700044, lastBackupMessageId); // Ganti ID Owner jika beda
+      }
+
+      // B. KIRIM BACKUP BARU (Silent)
+      const result = await sendDocument(5023700044, file, `🔄 Auto-Backup (${date})\n_File lama otomatis dihapus_`, true);
+      
+      // C. SIMPAN ID BARU
+      if (result && result.ok) {
+        lastBackupMessageId = result.result.message_id;
+      }
+
       fs.unlinkSync(file);
     }
   } catch (e) { console.error("Backup Error:", e); }
@@ -62,7 +78,7 @@ async function handleMessage(msg) {
   const senderId = msg.from.id;
   if (![5023700044, 8469259152].includes(senderId)) return;
   
-  // RESTORE MANUAL (Cadangan darurat, meskipun Auto-Sync sudah aktif)
+  // RESTORE MANUAL (Backup plan jika Auto-Sync gagal)
   if (msg.document && (msg.document.file_name.endsWith('.db') || msg.document.file_name.endsWith('.sqlite'))) {
     sendMessage(chatId, "⏳ **MENDETEKSI DATABASE...**\nSedang memulihkan data...");
     const link = await getFileLink(msg.document.file_id);
