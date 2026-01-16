@@ -17,17 +17,18 @@ export function addTx(p) {
   return stmt.run(p.user, p.account, p.amount, p.category, p.note);
 }
 
-// [FITUR BARU] REBUILD DATABASE (AUTO-SYNC)
+// [FITUR UTAMA] REBUILD DATABASE (AUTO-SYNC)
+// Menghapus database lokal dan mengisinya ulang dengan data dari Cloud (Sheet)
 export function rebuildDatabase(txs) {
   if (!txs || txs.length === 0) return 0;
   
-  // 1. Kosongkan tabel transaksi lama (Reset Total)
+  // 1. Reset tabel transaksi (Wipe memory)
   db.prepare("DELETE FROM transactions").run();
   
-  // 2. Siapkan query insert massal
+  // 2. Siapkan query insert
   const insert = db.prepare("INSERT INTO transactions (timestamp, user, account, amount, category, note) VALUES (?, ?, ?, ?, ?, ?)");
   
-  // 3. Jalankan transaksi database (Batch Insert agar cepat)
+  // 3. Jalankan transaksi database (Bulk Insert)
   const insertMany = db.transaction((items) => {
     for (const item of items) {
       insert.run(item.timestamp, item.user, item.account, item.amount, item.category, item.note);
