@@ -6,8 +6,7 @@ const privateKey = process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_K
 const auth = new JWT({ email: process.env.GOOGLE_CLIENT_EMAIL, key: privateKey, scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
 
-// --- 1. SISTEM ANTRIAN (QUEUE) ---
-const queue = [];
+// --- 1. SISTEM ANTRIAN (QUEUE) ---\nconst queue = [];
 let isProcessing = false;
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -20,35 +19,27 @@ async function processQueue() {
       await doc.loadInfo();
       const sheet = doc.sheetsByIndex[0];
       const now = new Date();
-      const dateStr = now.toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
-      const bulan = now.toLocaleString("id-ID", { month: "long", timeZone: "Asia/Jakarta" });
-      const tahun = now.getFullYear();
-
+      
       let amount = tx.amount;
       // Logika Accounting: Expense Negatif, Income Positif
-      if (tx.category !== "Pendapatan" && tx.category !== "Saldo Awal" && amount > 0) amount = -amount;
-      if (tx.category === "Transfer") amount = 0; 
-      
-      // Smart Correction: Jangan ubah nilai jika ini adalah koreksi
-      if (tx.note && tx.note.includes("AUTO CORRECTION")) {
-         // Pass
+      if (tx.category !== "Pendapatan" && tx.category !== "Saldo Awal" && amount > 0) {
+        amount = -Math.abs(amount);
+      }
+      if (tx.category === "Pendapatan") {
+        amount = Math.abs(amount);
       }
 
       await sheet.addRow({
-        Timestamp: dateStr,
-        User: tx.user === 'M' ? 'Malvin' : 'Yovita',
-        Type: amount > 0 ? 'Income' : 'Expense',
-        Category: tx.category,
-        Note: tx.note,
-        Account: tx.account.toUpperCase(),
-        Amount: Math.abs(amount), // Tampilan (Mutlak)
-        RealAmount: amount,       // [KUNCI SYNC] Nilai Asli (+/-)
-        Bulan: bulan,             // [BARU]
-        Tahun: tahun              // [BARU]
+        'Timestamp': tx.timestamp || now.toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }),
+        'User': tx.user === 'M' ? 'Malvin' : 'Yovita',
+        'Account': tx.account.toUpperCase(),
+        'Category': tx.category,
+        'RealAmount': amount,
+        'Note': tx.note
       });
       
       console.log(`✅ Sukses ke Sheet: ${tx.note}`);
-      await delay(2000); // Jeda 2 detik
+      await delay(1500); // Jeda aman
 
     } catch (error) {
       console.error("Gagal update Google Sheet:", error);
@@ -62,7 +53,7 @@ export async function appendToSheet(tx) {
   processQueue();
 }
 
-// --- 2. FITUR DOWNLOAD (AUTO-SYNC) ---
+// --- 2. FITUR SYNC: PULL (Sheet -> Bot) ---
 export async function downloadFromSheet() {
   try {
     console.log("☁️ Mengunduh data dari Google Sheet...");
@@ -83,19 +74,52 @@ export async function downloadFromSheet() {
       const amount = parseFloat(row.get('RealAmount').toString().replace(/[^0-9\.\-]/g, ''));
 
       return {
-        timestamp: row.get('Timestamp'), // Gunakan timestamp asli dari sheet
+        timestamp: row.get('Timestamp'),
         user: user,
         account: row.get('Account').toLowerCase(),
         category: row.get('Category'),
         note: row.get('Note'),
-        amount: isNaN(amount) ? 0 : amount
+        amount: amount
       };
-    }).filter(t => t !== null);
+    }).filter(item => item !== null); // Hapus baris kosong/invalid
 
     return transactions;
-
   } catch (error) {
-    console.error("❌ Gagal Sync Sheet (Cek Izin/Env):", error);
+    console.error("Gagal download sheet:", error);
     return [];
   }
+}
+
+// --- 3. FITUR SYNC: PUSH (Bot -> Sheet) ---
+// [BARU] Menghapus isi sheet dan menimpa dengan data Database Lokal
+export async function overwriteSheet(transactions) {
+    try {
+        console.log("🔄 Memulai Force Push ke Google Sheet...");
+        await doc.loadInfo();
+        const sheet = doc.sheetsByIndex[0];
+        
+        // 1. Hapus semua baris (Clear Sheet)
+        await sheet.clear();
+        
+        // 2. Pasang Header Kembali
+        await sheet.setHeaderRow(['Timestamp', 'User', 'Account', 'Category', 'RealAmount', 'Note']);
+        
+        // 3. Mapping data DB ke format Sheet
+        const rows = transactions.map(tx => ({
+            'Timestamp': tx.timestamp,
+            'User': tx.user === 'M' ? 'Malvin' : 'Yovita',
+            'Account': tx.account.toUpperCase(),
+            'Category': tx.category,
+            'RealAmount': tx.amount, // Di DB sudah +/- sesuai logic, tinggal masukin
+            'Note': tx.note
+        }));
+
+        // 4. Upload (Bulk Add)
+        await sheet.addRows(rows);
+        console.log(`✅ Berhasil Push ${rows.length} data ke Sheet.`);
+        return true;
+    } catch (error) {
+        console.error("❌ Gagal Push ke Sheet:", error);
+        return false;
+    }
 }
