@@ -15,7 +15,6 @@ initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━━";
 
-const pendingTxs = {};      
 const pendingAdmin = {};    
 
 const LIQUID_LIST = ['bca', 'cash', 'gopay', 'ovo', 'shopeepay'];
@@ -26,13 +25,6 @@ const getSisaSaldo = (user, account) => {
   const row = rekap.rows.find(r => r.user === user && r.account.toLowerCase() === account.toLowerCase());
   return row ? row.balance : 0;
 };
-
-// Auto Backup setiap 14 menit
-cron.schedule('*/14 * * * *', async () => {
-  if (fs.existsSync("./myfinance.db")) {
-    await sendDocument(process.env.TELEGRAM_USER_ID, "./myfinance.db", "Periodic Backup DB (14min)");
-  }
-});
 
 const handleMessage = async (msg) => {
   const chatId = msg.chat.id;
@@ -50,7 +42,7 @@ const handleMessage = async (msg) => {
 
   // --- 1. PERINTAH SISTEM (PRIORITAS) ---
   if (lowText === 'menu' || lowText === 'help' || lowText === '/start') {
-    return "🏠 **MENU BOT**\n" + line + "\n• Ketik langsung: `makan 50k`\n• `Saldo` : Cek posisi keuangan\n• `History 20` : Cek transaksi terakhir\n• `Laporan` : Download Rekap PDF\n• `Sync pull` : Download data Sheet\n• `Sync push` : Upload data ke Sheet\n• `Koreksi` : Hapus data terakhir";
+    return "🏠 **MENU BOT**\n" + line + "\n• Ketik langsung: `makan 50k` (Greedy)\n• `Saldo` : Cek posisi keuangan\n• `ss [akun] [nominal]` : Set Saldo\n• `tf [akun] ke [partner/akun] [nom]` : Transfer\n• `History 20` : Cek transaksi terakhir\n• `Laporan` : Download Rekap PDF\n• `Sync pull` : Download data Sheet\n• `Sync push` : Upload data ke Sheet\n• `Koreksi` : Hapus data terakhir";
   }
 
   if (lowText === 'saldo' || lowText === 'cek saldo') {
@@ -62,7 +54,8 @@ const handleMessage = async (msg) => {
       rows.filter(r => LIQUID_LIST.includes(r.account.toLowerCase())).forEach(r => s += `🔹 ${r.account.toUpperCase().padEnd(9)}: ${fmt(r.balance)}\n`);
       const assets = rows.filter(r => ASSET_LIST.includes(r.account.toLowerCase()));
       if (assets.length > 0) s += `\n*--- ASET ---*\n`, assets.forEach(r => s += `🔸 ${r.account.toUpperCase().padEnd(9)}: ${fmt(r.balance)}\n`);
-      return s + `${line}\n*Total Kekayaan: ${fmt(rows.filter(r => r.account !== 'cc').reduce((a, b) => a + b.balance, 0))}*\n\n`;
+      const total = rows.filter(r => r.account !== 'cc').reduce((a, b) => a + b.balance, 0);
+      return s + `${line}\n*Total Kekayaan: ${fmt(total)}*\n\n`;
     };
     return buildUI('M', 'MALVIN') + buildUI('Y', 'YOVITA');
   }
@@ -75,7 +68,6 @@ const handleMessage = async (msg) => {
 
   if (lowText === 'sync push') {
     const allData = getAllTransactions();
-    await sendMessage(chatId, `🔄 Sedang Push ${allData.length} data...`);
     await overwriteSheet(allData);
     return `✅ Berhasil Push ${allData.length} data ke Google Sheets.`;
   }
@@ -85,14 +77,6 @@ const handleMessage = async (msg) => {
     const filePath = await createPDF(getAllTransactions(), "LAPORAN KEUANGAN LENGKAP");
     await sendDocument(chatId, filePath, "Rekap saldo & history lengkap.");
     return null;
-  }
-
-  if (lowText.startsWith('history')) {
-    const limit = parseInt(lowText.replace('history', '').trim()) || 10;
-    const data = getLatestTransactions(limit);
-    let res = `📜 **HISTORY TRANSAKSI**\n${line}\n`;
-    data.forEach(r => res += `${new Date(r.timestamp).toLocaleDateString('id-ID', {day:'2-digit', month:'2-digit'})} [${r.user}] ${r.account.toUpperCase()} | ${fmt(r.amount)}\n   └ ${r.note}\n`);
-    return res + `${line}\n*Menampilkan ${data.length} data.*`;
   }
 
   // --- 2. PENDING STATES ---
@@ -115,7 +99,7 @@ const handleMessage = async (msg) => {
   if (result.type === 'error') {
     const cmdList = ['saldo', 'menu', 'history', 'laporan', 'sync', 'koreksi', 'undo'];
     if (cmdList.some(c => lowText.includes(c))) return `❓ Perintah tidak dikenali. Ketik \`Menu\` untuk bantuan.`;
-    if (lowText.split(' ').length <= 3 && !isGroup) return `⚠️ Gagal mencatat. Nominal tidak ditemukan atau format salah.`;
+    if (lowText.split(' ').length <= 3 && !isGroup) return `⚠️ Gagal mencatat. Nominal tidak ditemukan atau format salah (Contoh: \`makan 50k\`).`;
     return null; 
   }
 
@@ -126,17 +110,22 @@ const handleMessage = async (msg) => {
 
   if (result.type === 'transfer') {
     pendingAdmin[chatId] = { txOut: result.txOut, txIn: result.txIn };
-    return `🔄 **Transfer (${userLabel})**\nAkun: ${result.txOut.account.toUpperCase()} ➡️ ${result.txIn.account.toUpperCase()}\nNominal: ${fmt(Math.abs(result.txOut.amount))}\n\n**Biaya Admin?** (Ketik 0 jika gratis)`;
+    const target = result.txIn.user !== result.txOut.user ? `Partner (${result.txIn.user === 'Y' ? 'Yovita' : 'Malvin'})` : result.txIn.account.toUpperCase();
+    return `🔄 **Transfer (${userLabel})**\nAkun: ${result.txOut.account.toUpperCase()} ➡️ ${target}\nNominal: ${fmt(Math.abs(result.txOut.amount))}\n\n**Biaya Admin?** (Ketik 0 jika gratis)`;
   }
 
   if (result.type === 'tx') {
     addTx(result.tx); appendToSheet(result.tx);
-    return `✅ **Berhasil mencatat: ${result.tx.category}**\nUser: ${userLabel}\nAkun: ${result.tx.account.toUpperCase()}\nNominal: ${fmt(Math.abs(result.tx.amount))}\nSisa Saldo: ${fmt(getSisaSaldo(userCode, result.tx.account))}`;
+    const sisa = getSisaSaldo(userCode, result.tx.account);
+    return `✅ **Berhasil mencatat: ${result.tx.category}**\nUser: ${userLabel}\nAkun: ${result.tx.account.toUpperCase()}\nNominal: ${fmt(Math.abs(result.tx.amount))}\nSisa Saldo: ${fmt(sisa)}`;
   }
 
   if (result.type === 'koreksi' || lowText === 'koreksi' || lowText === 'undo') {
     const last = deleteLastTx(userCode);
-    if (last) return `↩️ **UNDO BERHASIL**\nUser: ${userLabel}\nAkun: ${last.account.toUpperCase()}\nDihapus: ${last.note}\nSisa Saldo: ${fmt(getSisaSaldo(userCode, last.account))}`;
+    if (last) {
+      const sisa = getSisaSaldo(userCode, last.account);
+      return `↩️ **UNDO BERHASIL**\nUser: ${userLabel}\nAkun: ${last.account.toUpperCase()}\nDihapus: ${last.note}\nSisa Saldo: ${fmt(sisa)}`;
+    }
     return "❌ Tidak ada data.";
   }
 };
