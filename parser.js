@@ -28,45 +28,16 @@ export function parseInput(line, userCode) {
   const low = line.toLowerCase();
   const tokens = line.split(/\s+/);
 
-  // 1. Logika Koreksi
   if (low === 'koreksi' || low === 'undo') return { type: 'koreksi' };
 
-  // 2. Logika Transfer (tf bca ke cash 10k)
-  if (low.includes(' ke ') || low.startsWith('tf ')) {
-    const clean = low.replace('tf ', '');
-    const parts = clean.split(' ke ');
-    if (parts.length === 2) {
-      const amountToken = tokens.find(t => parseAmount(t) !== null);
-      if (amountToken) {
-        const amt = parseAmount(amountToken);
-        const fromAcc = Object.keys(ACCOUNT_MAP).find(k => parts[0].includes(k) || ACCOUNT_MAP[k].some(a => parts[0].includes(a))) || 'cash';
-        const toAcc = Object.keys(ACCOUNT_MAP).find(k => parts[1].includes(k) || ACCOUNT_MAP[k].some(a => parts[1].includes(a))) || 'cash';
-        return {
-          type: 'transfer',
-          txOut: { user: userCode, account: fromAcc, amount: -amt, category: 'Transfer', note: `Ke ${toAcc}` },
-          txIn: { user: userCode, account: toAcc, amount: amt, category: 'Transfer', note: `Dari ${fromAcc}` }
-        };
-      }
-    }
-  }
-
-  // 3. Logika SS (Set Saldo)
-  if (low.startsWith('ss ')) {
-    const amountToken = tokens.find(t => parseAmount(t) !== null);
-    const accToken = tokens.find(t => t !== 'ss' && parseAmount(t) === null);
-    if (amountToken) {
-      return { type: 'adjustment', tx: { user: userCode, account: accToken || 'cash', amount: parseAmount(amountToken), category: 'Adjustment', note: 'Set Saldo' } };
-    }
-  }
-
-  // 4. Logika Transaksi (Greedy Search)
+  // GREEDY AMOUNT SEARCH
   const amountToken = tokens.find(t => parseAmount(t) !== null);
   if (!amountToken) return { type: 'error' };
-
   const amountRaw = parseAmount(amountToken);
-  let account = 'cash'; // Default
-  let noteTokens = tokens.filter(t => t !== amountToken);
 
+  // GREEDY ACCOUNT SEARCH
+  let account = 'cash'; 
+  let noteTokens = tokens.filter(t => t !== amountToken);
   for (let i = 0; i < noteTokens.length; i++) {
     const t = noteTokens[i].toLowerCase().replace(/[^a-z0-9]+/g, '');
     const foundAcc = Object.keys(ACCOUNT_MAP).find(key => key === t || ACCOUNT_MAP[key].includes(t));
