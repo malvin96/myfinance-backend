@@ -27,7 +27,7 @@ export function parseInput(line, userCode) {
 
   if (low === 'koreksi' || low === 'undo') return { type: 'koreksi' };
 
-  // 1. SET SALDO (ss bca 10jt)
+  // 1. Logika Set Saldo (ss bca 10jt)
   if (low.startsWith('ss ')) {
     const amountToken = tokens.find(t => parseAmount(t) !== null);
     const accToken = tokens.find(t => t !== 'ss' && parseAmount(t) === null);
@@ -37,38 +37,40 @@ export function parseInput(line, userCode) {
     }
   }
 
-  // 2. TRANSFER (tf bca ke cash 100k)
+  // 2. Logika Transfer (tf bca ke yovita 100k)
   if (low.includes(' ke ') || low.startsWith('tf ')) {
     const amountToken = tokens.find(t => parseAmount(t) !== null);
     if (amountToken) {
       const amt = parseAmount(amountToken);
       const parts = low.replace('tf ', '').split(' ke ');
       if (parts.length === 2) {
-        const fromAcc = Object.keys(ACCOUNT_MAP).find(k => parts[0].includes(k) || ACCOUNT_MAP[k].some(a => parts[0].includes(a))) || 'cash';
-        const toAcc = Object.keys(ACCOUNT_MAP).find(k => parts[1].includes(k) || ACCOUNT_MAP[k].some(a => parts[1].includes(a))) || 'cash';
+        let fromAcc = Object.keys(ACCOUNT_MAP).find(k => parts[0].includes(k) || ACCOUNT_MAP[k].some(a => parts[0].includes(a))) || 'cash';
+        let toAcc = Object.keys(ACCOUNT_MAP).find(k => parts[1].includes(k) || ACCOUNT_MAP[k].some(a => parts[1].includes(a))) || 'cash';
+        
+        let targetUser = userCode;
+        if (parts[1].includes('yovita')) targetUser = 'Y';
+        if (parts[1].includes('malvin')) targetUser = 'M';
+
         return {
           type: 'transfer',
-          txOut: { user: userCode, account: fromAcc, amount: -amt, category: 'Transfer', note: `Ke ${toAcc}` },
-          txIn: { user: userCode, account: toAcc, amount: amt, category: 'Transfer', note: `Dari ${fromAcc}` }
+          txOut: { user: userCode, account: fromAcc, amount: -amt, category: 'Transfer', note: `Ke ${targetUser === userCode ? toAcc : 'Partner'}` },
+          txIn: { user: targetUser, account: toAcc, amount: amt, category: 'Transfer', note: `Dari ${userCode === 'M' ? 'Malvin' : 'Yovita'}` }
         };
       }
     }
   }
 
-  // 3. TRANSAKSI BIASA (GREEDY)
+  // 3. Logika Transaksi Biasa (Greedy Search)
   const amountToken = tokens.find(t => parseAmount(t) !== null);
   if (!amountToken) return { type: 'error' };
-
   const amountRaw = parseAmount(amountToken);
   let account = 'cash'; 
   let noteTokens = tokens.filter(t => t !== amountToken);
-
   for (let i = 0; i < noteTokens.length; i++) {
     const t = noteTokens[i].toLowerCase().replace(/[^a-z0-9]+/g, '');
     const foundAcc = Object.keys(ACCOUNT_MAP).find(key => key === t || ACCOUNT_MAP[key].includes(t));
     if (foundAcc) { account = foundAcc; noteTokens.splice(i, 1); break; }
   }
-
   const note = noteTokens.join(' ') || 'Tanpa catatan';
   const category = detectCategory(note);
   return { type: 'tx', category, tx: { user: userCode, account, amount: category === 'Pendapatan' ? Math.abs(amountRaw) : -Math.abs(amountRaw), category, note } };
