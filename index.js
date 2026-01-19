@@ -16,7 +16,6 @@ const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━━";
 
 const pendingAdmin = {};    
-
 const LIQUID_LIST = ['bca', 'cash', 'gopay', 'ovo', 'shopeepay'];
 const ASSET_LIST = ['bibit', 'mirrae', 'bca sekuritas'];
 
@@ -40,9 +39,9 @@ const handleMessage = async (msg) => {
   const userCode = isMalvin ? 'M' : 'Y';
   const userLabel = isMalvin ? "MALVIN" : "YOVITA";
 
-  // --- 1. PERINTAH SISTEM (PRIORITAS) ---
+  // --- 1. LOGIKA PRIORITAS PERINTAH SISTEM (KUNCI) ---
   if (lowText === 'menu' || lowText === 'help' || lowText === '/start') {
-    return "🏠 **MENU BOT**\n" + line + "\n• Ketik langsung: `makan 50k` (Greedy)\n• `Saldo` : Cek posisi keuangan\n• `ss [akun] [nominal]` : Set Saldo\n• `tf [akun] ke [partner/akun] [nom]` : Transfer\n• `History 20` : Cek transaksi terakhir\n• `Laporan` : Download Rekap PDF\n• `Sync pull` : Download data Sheet\n• `Sync push` : Upload data ke Sheet\n• `Koreksi` : Hapus data terakhir";
+    return "🏠 **MENU BOT**\n" + line + "\n• Ketik langsung: `makan 50k` (Greedy)\n• `Saldo` : Cek posisi keuangan\n• `ss [akun] [nominal]` : Set Saldo\n• `tf [akun] ke [tujuan] [nom]` : Transfer\n• `History` (10), (20), (30), (40), (50)\n• `Laporan` : Download Rekap PDF\n• `Sync pull` : Download data Sheet\n• `Sync push` : Upload data ke Sheet\n• `Koreksi` : Hapus data terakhir";
   }
 
   if (lowText === 'saldo' || lowText === 'cek saldo') {
@@ -58,6 +57,18 @@ const handleMessage = async (msg) => {
       return s + `${line}\n*Total Kekayaan: ${fmt(total)}*\n\n`;
     };
     return buildUI('M', 'MALVIN') + buildUI('Y', 'YOVITA');
+  }
+
+  // FIXED: Deteksi History sebelum Parser Transaksi untuk mencegah nominal '10' tercatat
+  if (lowText.startsWith('history')) {
+    const limit = parseInt(lowText.replace('history', '').trim()) || 10;
+    const data = getLatestTransactions(limit);
+    let res = `📜 **HISTORY TRANSAKSI**\n${line}\n`;
+    data.forEach(r => {
+      const t = new Date(r.timestamp).toLocaleDateString('id-ID', {day:'2-digit', month:'2-digit'});
+      res += `${t} [${r.user}] ${r.account.toUpperCase()} | ${fmt(r.amount)}\n   └ ${r.note}\n`;
+    });
+    return res + `${line}\n*Menampilkan ${data.length} data terakhir.*`;
   }
 
   if (lowText === 'sync pull') {
@@ -79,7 +90,7 @@ const handleMessage = async (msg) => {
     return null;
   }
 
-  // --- 2. PENDING STATES ---
+  // --- 2. PENDING STATES (FEE TRANSFER) ---
   if (pendingAdmin[chatId] && !isNaN(text)) {
     const { txOut, txIn } = pendingAdmin[chatId];
     const fee = parseFloat(text);
@@ -93,13 +104,13 @@ const handleMessage = async (msg) => {
     return `✅ **Transfer Berhasil**\nUser: ${userLabel}\nAkun: ${txOut.account.toUpperCase()}\nSisa Saldo: ${fmt(sisa)}`;
   }
 
-  // --- 3. PARSER TRANSAKSI ---
+  // --- 3. PARSER TRANSAKSI (GREEDY) ---
   const result = parseInput(text, userCode);
   
   if (result.type === 'error') {
     const cmdList = ['saldo', 'menu', 'history', 'laporan', 'sync', 'koreksi', 'undo'];
     if (cmdList.some(c => lowText.includes(c))) return `❓ Perintah tidak dikenali. Ketik \`Menu\` untuk bantuan.`;
-    if (lowText.split(' ').length <= 3 && !isGroup) return `⚠️ Gagal mencatat. Nominal tidak ditemukan atau format salah (Contoh: \`makan 50k\`).`;
+    if (lowText.split(' ').length <= 3 && !isGroup) return `⚠️ Gagal mencatat. Nominal tidak ditemukan atau format salah.`;
     return null; 
   }
 
@@ -116,16 +127,12 @@ const handleMessage = async (msg) => {
 
   if (result.type === 'tx') {
     addTx(result.tx); appendToSheet(result.tx);
-    const sisa = getSisaSaldo(userCode, result.tx.account);
-    return `✅ **Berhasil mencatat: ${result.tx.category}**\nUser: ${userLabel}\nAkun: ${result.tx.account.toUpperCase()}\nNominal: ${fmt(Math.abs(result.tx.amount))}\nSisa Saldo: ${fmt(sisa)}`;
+    return `✅ **Berhasil mencatat: ${result.tx.category}**\nUser: ${userLabel}\nAkun: ${result.tx.account.toUpperCase()}\nNominal: ${fmt(Math.abs(result.tx.amount))}\nSisa Saldo: ${fmt(getSisaSaldo(userCode, result.tx.account))}`;
   }
 
   if (result.type === 'koreksi' || lowText === 'koreksi' || lowText === 'undo') {
     const last = deleteLastTx(userCode);
-    if (last) {
-      const sisa = getSisaSaldo(userCode, last.account);
-      return `↩️ **UNDO BERHASIL**\nUser: ${userLabel}\nAkun: ${last.account.toUpperCase()}\nDihapus: ${last.note}\nSisa Saldo: ${fmt(sisa)}`;
-    }
+    if (last) return `↩️ **UNDO BERHASIL**\nUser: ${userLabel}\nAkun: ${last.account.toUpperCase()}\nDihapus: ${last.note}\nSisa Saldo: ${fmt(getSisaSaldo(userCode, last.account))}`;
     return "❌ Tidak ada data.";
   }
 };
