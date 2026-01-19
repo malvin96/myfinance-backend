@@ -27,7 +27,7 @@ export function parseInput(line, userCode) {
 
   if (low === 'koreksi' || low === 'undo') return { type: 'koreksi' };
 
-  // 1. Logika Set Saldo (ss bca 10jt)
+  // 1. Logika SS (Set Saldo)
   if (low.startsWith('ss ')) {
     const amountToken = tokens.find(t => parseAmount(t) !== null);
     const accToken = tokens.find(t => t !== 'ss' && parseAmount(t) === null);
@@ -46,11 +46,9 @@ export function parseInput(line, userCode) {
       if (parts.length === 2) {
         let fromAcc = Object.keys(ACCOUNT_MAP).find(k => parts[0].includes(k) || ACCOUNT_MAP[k].some(a => parts[0].includes(a))) || 'cash';
         let toAcc = Object.keys(ACCOUNT_MAP).find(k => parts[1].includes(k) || ACCOUNT_MAP[k].some(a => parts[1].includes(a))) || 'cash';
-        
         let targetUser = userCode;
         if (parts[1].includes('yovita')) targetUser = 'Y';
         if (parts[1].includes('malvin')) targetUser = 'M';
-
         return {
           type: 'transfer',
           txOut: { user: userCode, account: fromAcc, amount: -amt, category: 'Transfer', note: `Ke ${targetUser === userCode ? toAcc : 'Partner'}` },
