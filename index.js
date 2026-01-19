@@ -9,9 +9,9 @@ import { appendToSheet, downloadFromSheet, overwriteSheet } from "./sheets.js";
 import { CATEGORIES } from "./categories.js";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo v8.0 No-Slash Active"));
+app.get("/", (req, res) => res.send("Bot MaYo v8.0 Active"));
 const port = process.env.PORT || 3000;
-app.listen(port);
+app.listen(port, () => console.log(`Server running on port ${port}`));
 
 // --- INIT ---
 initDB();
@@ -22,163 +22,194 @@ const line = "━━━━━━━━━━━━━━━━━━━";
 const pendingTxs = {};      
 const pendingAdmin = {};    
 
-// --- AUTO BACKUP ---
+// --- AUTO BACKUP (Setiap 14 Menit, Detik ke-58) ---
 cron.schedule('58 */14 * * * *', async () => {
   const chatId = process.env.TELEGRAM_USER_ID; 
   if (chatId) {
      const now = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
+     // Kirim ke Admin (Malvin)
      await sendDocument(chatId, 'myfinance.db', `🛡 **AUTO BACKUP**\n🕒 ${now}`, true);
-     await downloadFromSheet(); // Keep Alive
+     
+     // Keep Alive Connection to Sheets
+     await downloadFromSheet(); 
+     console.log(`[AUTO] Backup sent to ${chatId} at ${now}`);
   }
 });
 
 // --- CORE LOGIC ---
-pollUpdates(async (msg) => {
-  const chatId = msg.chat.id;
-  const textRaw = msg.text || "";
-  const text = textRaw.toLowerCase().trim(); // Normalisasi input
-  const userCode = (msg.from.first_name && msg.from.first_name.toLowerCase().includes("yovita")) ? 'Y' : 'M';
+async function handleMessage(msg) {
+  const chatId = msg.chat.id.toString();
+  const text = msg.text || "";
+  const msgId = msg.message_id;
+
+  // 1. AUTHENTICATION & USER DETECTION
+  const adminId = process.env.TELEGRAM_USER_ID;
+  const partnerId = process.env.USER_ID_PARTNER;
   
-  console.log(`📩 [${userCode}] Input: ${textRaw}`);
-
-  // 1. MENU & HELP
-  if (text === 'menu' || text === 'help' || text === 'start' || text === 'panduan') {
-    return `🤖 **MENU UTAMA BOT MAYO**\n\n` +
-           `💸 **Transaksi**\n` +
-           `• \`[Item] [Harga]\` : Input Cepat\n` +
-           `• \`[Akun] [Item] [Harga]\` : Input Detail\n` +
-           `• \`tf [jml] [asal] [tujuan]\` : Transfer\n\n` +
-           `📊 **Data**\n` +
-           `• \`history [angka]\` : Cek 10-50 riwayat\n` +
-           `• \`laporan\` : PDF Laporan Keuangan\n` +
-           `• \`saldo\` : Cek semua saldo\n\n` +
-           `🛠 **Tools**\n` +
-           `• \`koreksi\` : Undo (Hapus Terakhir)\n` +
-           `• \`sync pull\` : Restore DB dari Sheet\n` +
-           `• \`sync push\` : Timpa Sheet dari DB\n` +
-           `• \`ss [akun] [nominal]\` : Set Saldo Manual`;
+  let userCode = null;
+  if (chatId === adminId) userCode = 'M';        // Malvin
+  else if (chatId === partnerId) userCode = 'Y'; // Partner
+  
+  if (!userCode) {
+      console.log(`Unauthorized access from: ${chatId}`);
+      return; // Abaikan pesan dari orang asing
   }
 
-  // 2. HISTORY (Tanpa /)
-  if (text.startsWith('history') || text.startsWith('log') || text === 'riwayat') {
-     const args = text.split(' ');
-     let limit = 10; 
-     if (args[1] && !isNaN(args[1])) limit = parseInt(args[1]);
-     if (limit > 50) limit = 50; 
-
-     const data = getLatestTransactions(limit);
-     if (data.length === 0) return "📭 Belum ada data transaksi.";
-
-     let response = `📜 **${limit} Riwayat Terakhir:**\n${line}\n`;
-     data.forEach((tx, index) => {
-         const icon = tx.amount < 0 ? '🔴' : '🟢';
-         const user = tx.user === 'M' ? '👨' : '👩';
-         response += `${index+1}. ${icon} ${user} **${tx.account.toUpperCase()}** • ${tx.note}\n`;
-         response += `    ${fmt(tx.amount)} (${tx.category})\n`;
-     });
-     return response;
+  // 2. FILE HANDLING (.db restore)
+  if (msg.document && msg.document.file_name.endsWith('.db') && userCode === 'M') {
+    const fileLink = await getFileLink(msg.document.file_id);
+    if (fileLink) {
+      const response = await fetch(fileLink);
+      const buffer = await response.buffer();
+      fs.writeFileSync('myfinance.db', buffer);
+      return "✅ **Database Restored!**\nSilakan cek `/saldo`.";
+    }
   }
 
-  // 3. LAPORAN PDF (Tanpa /)
-  if (text === 'laporan' || text === 'pdf' || text === 'rekap') {
-     const data = getAllTransactions(); 
-     await createPDF(data, "LAPORAN KEUANGAN LENGKAP");
-     const fileName = `Laporan_${new Date().toISOString().slice(0, 10)}.pdf`;
-     await sendDocument(chatId, fileName, "📊 Laporan Keuangan Siap, Bos.");
-     return null;
+  if (!text) return null;
+
+  // 3. COMMANDS
+  const lowerText = text.toLowerCase();
+
+  // --- REPORTING ---
+  if (lowerText === 'laporan' || lowerText === '/report') {
+    const data = getAllTransactions();
+    const pdfPath = await createPDF(data);
+    await sendDocument(chatId, pdfPath, "📊 **Laporan Keuangan**");
+    fs.unlinkSync(pdfPath); // Hapus file lokal setelah kirim
+    return null;
   }
 
-  // 4. SYNC (Tanpa /)
-  if (text.startsWith('sync')) {
-      const args = text.split(' ');
-      const mode = args[1] ? args[1] : '';
-
-      if (mode === 'pull') {
-          await sendMessage(chatId, "⏳ **PULL**: Sedang download data Sheet...");
-          const sheetData = await downloadFromSheet();
-          if (sheetData.length > 0) {
-              const count = rebuildDatabase(sheetData);
-              return `✅ **SYNC PULL SUKSES!**\nDatabase Bot diperbarui (${count} data).`;
-          }
-          return "❌ Gagal Pull / Sheet Kosong.";
-      } 
-      
-      else if (mode === 'push') {
-          await sendMessage(chatId, "⏳ **PUSH**: Sedang upload data ke Sheet...");
-          const dbData = getAllTransactions();
-          const success = await overwriteSheet(dbData);
-          if (success) return `✅ **SYNC PUSH SUKSES!**\nGoogle Sheet diperbarui (${dbData.length} data).`;
-          return "❌ Gagal Push ke Sheet.";
-      }
-      return "⚠️ Ketik `sync pull` (Sheet->Bot) atau `sync push` (Bot->Sheet).";
-  }
-
-  // 5. CEK SALDO (Tanpa /)
-  if (text === 'saldo' || text === 'cek saldo' || text === 'balance') {
+  if (lowerText === 'saldo' || lowerText === '/balance') {
     const rekap = getRekapLengkap();
-    let msg = `💰 **POSISI SALDO**\n${line}\n`;
+    const totalCC = getTotalCCHariIni();
     
-    const mRows = rekap.rows.filter(r => r.user === 'M');
-    const yRows = rekap.rows.filter(r => r.user === 'Y');
-
-    if (mRows.length > 0) {
-        msg += `👨 **MALVIN**\n`;
-        mRows.forEach(r => msg += `• ${r.account.toUpperCase()}: ${fmt(r.balance)}\n`);
-    }
-    msg += `\n`;
-    if (yRows.length > 0) {
-        msg += `👩 **YOVITA**\n`;
-        yRows.forEach(r => msg += `• ${r.account.toUpperCase()}: ${fmt(r.balance)}\n`);
-    }
+    let msgStr = `💰 **POSISI SALDO**\n${line}\n`;
+    rekap.rows.forEach(r => {
+        const icon = r.user === 'M' ? '👨🏻' : '👩🏻';
+        msgStr += `${icon} **${r.account.toUpperCase()}**: ${fmt(r.balance)}\n`;
+    });
     
-    msg += `${line}\n💎 **TOTAL: ${fmt(rekap.totalWealth)}**`;
-    return msg;
+    msgStr += `${line}\n💵 **TOTAL KEKAYAAN: ${fmt(rekap.totalWealth)}**`;
+    
+    if (totalCC.total < 0) {
+        msgStr += `\n\n⚠️ **TAGIHAN CC HARI INI:**\n${fmt(Math.abs(totalCC.total))}`;
+    }
+    return msgStr;
   }
 
-  // 6. ADMIN TRANSFER LOGIC
-  if (pendingAdmin[chatId]) {
-    const cost = parseFloat(textRaw.replace(/[^0-9]/g, '')) || 0;
-    const { txOut, txIn } = pendingAdmin[chatId];
+  if (lowerText === 'history' || lowerText === '/history') {
+    const data = getLatestTransactions(10);
+    if (data.length === 0) return "Belum ada transaksi.";
     
-    addTx(txOut); appendToSheet(txOut);
-    addTx(txIn); appendToSheet(txIn);
-    
-    let adminMsg = "";
-    if (cost > 0) {
-      const txAdmin = { 
-        user: txOut.user, account: txOut.account, amount: -cost, category: 'Tagihan', note: `Admin Transfer` 
-      };
-      addTx(txAdmin); appendToSheet(txAdmin);
-      adminMsg = ` + Admin ${fmt(cost)}`;
-    }
-    
-    delete pendingAdmin[chatId];
-    return `✅ **Transfer Berhasil!**\n💸 ${fmt(Math.abs(txOut.amount))} ke ${txIn.account.toUpperCase()}${adminMsg}`;
+    let msgStr = `📜 **10 TRANSAKSI TERAKHIR**\n${line}\n`;
+    data.forEach(d => {
+        const arrow = d.amount >= 0 ? '🟢' : '🔴';
+        const userIcon = d.user === 'M' ? '👨🏻' : '👩🏻';
+        msgStr += `${arrow} ${d.category} (${userIcon} ${d.account.toUpperCase()})\nRs ${parseInt(Math.abs(d.amount)).toLocaleString()} - ${d.note}\n\n`;
+    });
+    return msgStr;
   }
 
-  // 7. CONFIRM CATEGORY LOGIC
+  if (lowerText === 'help' || lowerText === 'panduan') {
+      return `🤖 **PANDUAN MAYO V8.0**\n\n` +
+             `✏️ **Input Transaksi:**\n` +
+             `• \`50k makan siang\` (Default Cash)\n` +
+             `• \`bca 100rb beli pulsa\`\n` +
+             `• \`2.5jt gopay topup\`\n\n` +
+             `🛠 **Fitur Admin:**\n` +
+             `• \`koreksi\` (Hapus transaksi terakhirmu)\n` +
+             `• \`ss [akun] [nominal]\` (Set Saldo)\n` +
+             `• \`sync push\` (DB -> Sheets)\n` +
+             `• \`sync pull\` (Sheets -> DB)\n` +
+             `• \`laporan\` (Download PDF)\n` +
+             `• \`saldo\` (Cek Saldo)`;
+  }
+
+  // --- SYNC COMMANDS ---
+  if (lowerText === 'sync push') {
+      if (userCode !== 'M') return "⛔ Hanya Admin yang boleh Sync.";
+      const allTx = getAllTransactions();
+      const success = await overwriteSheet(allTx);
+      return success ? "✅ **Sync Push Sukses!**\nDatabase Lokal -> Google Sheets." : "❌ Sync Gagal.";
+  }
+
+  if (lowerText === 'sync pull') {
+      if (userCode !== 'M') return "⛔ Hanya Admin yang boleh Sync.";
+      const sheetData = await downloadFromSheet();
+      if (sheetData.length > 0) {
+          const count = rebuildDatabase(sheetData);
+          return `✅ **Sync Pull Sukses!**\nDatabase di-restore (${count} transaksi).`;
+      }
+      return "❌ Gagal download atau Sheet kosong.";
+  }
+
+  // --- INTERACTIVE BUTTONS HANDLING ---
   if (pendingTxs[chatId]) {
-    const valid = CATEGORIES.find(c => c.cat.toLowerCase() === text);
-    if (valid || text) { 
-       const finalCat = valid ? valid.cat : textRaw; // Use raw text for custom category
-       const tx = pendingTxs[chatId];
-       tx.category = finalCat;
-       if (finalCat === 'Pendapatan') tx.amount = Math.abs(tx.amount);
-       else tx.amount = -Math.abs(tx.amount);
-
-       addTx(tx); appendToSheet(tx);
-       delete pendingTxs[chatId];
-       return `✅ **${finalCat}** dicatat: ${tx.note} (${fmt(tx.amount)})`;
+    const catMatch = CATEGORIES.find(c => c.cat.toLowerCase() === lowerText);
+    if (catMatch) {
+        const tx = pendingTxs[chatId];
+        tx.category = catMatch.cat;
+        
+        // Finalize Transaction
+        addTx(tx);
+        appendToSheet(tx);
+        delete pendingTxs[chatId];
+        
+        await deleteMessage(chatId, msgId); // Hapus chat user (tombol)
+        return `✅ **Tersimpan!**\n${tx.category}: ${fmt(Math.abs(tx.amount))} (${tx.account.toUpperCase()})`;
+    } else if (lowerText === 'batal') {
+        delete pendingTxs[chatId];
+        return "❌ Transaksi dibatalkan.";
     }
   }
 
-  // 8. PARSER INPUT (Adjustment, Koreksi, TF, Transaksi)
-  const result = parseInput(textRaw, userCode);
-  if (!result) return null;
+  // --- TRANSFER CONFIRMATION ---
+  if (pendingAdmin[chatId]) {
+      const fee = parseFloat(text.replace(/[^0-9]/g, ''));
+      if (!isNaN(fee)) {
+          const { txOut, txIn } = pendingAdmin[chatId];
+          
+          addTx(txOut); appendToSheet(txOut);
+          addTx(txIn); appendToSheet(txIn);
+          
+          let msgStr = `✅ **Transfer Berhasil**\nFrom: ${txOut.account.toUpperCase()}\nTo: ${txIn.account.toUpperCase()}\nNominal: ${fmt(Math.abs(txOut.amount))}`;
 
+          if (fee > 0) {
+              const txFee = {
+                  user: userCode,
+                  account: txOut.account,
+                  amount: -fee,
+                  category: 'Tagihan',
+                  note: `Admin Transfer ke ${txIn.account}`,
+                  timestamp: new Date().toISOString()
+              };
+              addTx(txFee); appendToSheet(txFee);
+              msgStr += `\n+ Admin Fee: ${fmt(fee)}`;
+          }
+
+          delete pendingAdmin[chatId];
+          return msgStr;
+      }
+  }
+
+  // 4. PARSING NATURAL LANGUAGE
+  // Inject userCode (M/Y) ke dalam hasil parsing
+  const result = parseInput(text);
+
+  if (!result) return null; // Bukan format transaksi
+
+  // Inject User Identity Here
+  if (result.tx) result.tx.user = userCode;
+  if (result.user) result.user = userCode; // Untuk command 'koreksi'
+  
   if (result.type === 'transfer') {
+    // Inject user juga ke objek transfer
+    result.txOut.user = userCode;
+    result.txIn.user = userCode;
+    
     pendingAdmin[chatId] = { txOut: result.txOut, txIn: result.txIn };
-    return `🔄 **Transfer**\nKe: ${result.txIn.account.toUpperCase()}\nNominal: ${fmt(Math.abs(result.txOut.amount))}\n\n**Biaya Admin?** (0 jika gratis)`;
+    return `🔄 **Transfer**\nKe: ${result.txIn.account.toUpperCase()}\nNominal: ${fmt(Math.abs(result.txOut.amount))}\n\n**Biaya Admin?** (Ketik '0' jika gratis)`;
   }
 
   if (result.type === 'adjustment') { // ss bca 100rb
@@ -187,7 +218,7 @@ pollUpdates(async (msg) => {
   }
 
   if (result.type === 'koreksi') { // koreksi / undo
-    const lastTx = deleteLastTx(result.user);
+    const lastTx = deleteLastTx(userCode); // Hapus milik user yang request saja
     if (lastTx) {
       const reverseTx = { ...lastTx, amount: -lastTx.amount, note: `[CORRECTION] ${lastTx.note}` };
       appendToSheet(reverseTx).catch(console.error);
@@ -198,19 +229,20 @@ pollUpdates(async (msg) => {
 
   if (result.type === 'tx') {
     if (result.category === 'Lainnya') {
-      pendingTxs[chatId] = result;
+      pendingTxs[chatId] = result.tx;
       const buttons = CATEGORIES.map(c => `\`${c.cat}\``).join(', ');
-      return `❓ **Kategori?**\n${buttons}`;
+      return `📂 **Pilih Kategori:**\n${buttons}\n\n_Ketik nama kategori di atas atau 'batal'_`;
     }
     
-    addTx(result); appendToSheet(result);
+    addTx(result.tx);
+    appendToSheet(result.tx);
     
-    let warning = "";
-    if (result.account === 'cc') {
-        const usage = getTotalCCHariIni();
-        if (Math.abs(usage.total) > 5000000) warning = `\n⚠️ **WARNING:** Pemakaian CC > 5 Juta!`;
-    }
-
-    return `✅ **${result.category}** dicatat: ${fmt(result.amount)}${warning}`;
+    const icon = result.tx.amount >= 0 ? '🤑' : '💸';
+    return `${icon} **Tersimpan!**\n${result.tx.category}: ${fmt(Math.abs(result.tx.amount))}\nAccount: ${result.tx.account.toUpperCase()}`;
   }
-});
+
+  return null;
+}
+
+// Start Polling
+pollUpdates(handleMessage);
