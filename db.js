@@ -17,7 +17,17 @@ export function addTx(p) {
   return stmt.run(p.user, p.account, p.amount, p.category, p.note);
 }
 
-// [FITUR UTAMA] REBUILD DATABASE (AUTO-SYNC)
+// [BARU] Ambil X Transaksi Terakhir (Read Only)
+export function getLatestTransactions(limit = 10) {
+  return db.prepare("SELECT * FROM transactions ORDER BY id DESC LIMIT ?").all(limit);
+}
+
+// [BARU] Ambil Semua Transaksi (Untuk Sync ke Sheet)
+export function getAllTransactions() {
+  return db.prepare("SELECT * FROM transactions ORDER BY id ASC").all();
+}
+
+// [FITUR UTAMA] REBUILD DATABASE (AUTO-SYNC / PULL)
 // Menghapus database lokal dan mengisinya ulang dengan data dari Cloud (Sheet)
 export function rebuildDatabase(txs) {
   if (!txs || txs.length === 0) return 0;
@@ -34,34 +44,14 @@ export function rebuildDatabase(txs) {
       insert.run(item.timestamp, item.user, item.account, item.amount, item.category, item.note);
     }
   });
-  
+
   insertMany(txs);
   return txs.length;
 }
 
-export function resetAccountBalance(user, account) {
-  return db.prepare("DELETE FROM transactions WHERE user = ? AND account = ?").run(user, account);
-}
-
-export function deleteLastTx(user) {
-  const last = db.prepare("SELECT * FROM transactions WHERE user = ? ORDER BY id DESC LIMIT 1").get(user);
-  if (last) {
-    db.prepare("DELETE FROM transactions WHERE id = ?").run(last.id);
-  }
-  return last;
-}
-
 export function getBudgetSummary() {
-  const budgets = db.prepare("SELECT * FROM budgets").all();
-  return budgets.map(b => {
-    const spent = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE category = ? AND amount < 0 AND strftime('%m', timestamp) = strftime('%m', 'now')").get(b.category);
-    return { category: b.category, limit: b.amount, spent: Math.abs(spent.total || 0) };
-  });
-}
-
-export function getCashflowSummary() {
-  const income = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE amount > 0 AND category != 'Transfer' AND category != 'Saldo Awal' AND strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')").get();
-  const expense = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE amount < 0 AND category != 'Transfer' AND strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')").get();
+  const income = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE category = 'Pendapatan' AND strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')").get();
+  const expense = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE category != 'Pendapatan' AND amount < 0 AND strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')").get();
   return { income: income.total || 0, expense: Math.abs(expense.total || 0) };
 }
 
@@ -75,16 +65,26 @@ export function getTotalCCHariIni() {
   return db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account = 'cc' AND amount < 0 AND date(timestamp) = date('now', 'localtime')").get() || { total: 0 };
 }
 
-export function getFilteredTransactions(filter) {
-  let query = "SELECT timestamp, user, account, category, amount, note FROM transactions";
-  let params = [];
-  
-  if (filter.type === 'day') { query += " WHERE date(timestamp) = date(?)"; params.push(filter.val); }
-  else if (filter.type === 'week') { query += " WHERE timestamp >= date('now', '-7 days')"; }
-  else if (filter.type === 'month') { query += " WHERE strftime('%m-%Y', timestamp) = ?"; params.push(filter.val); }
-  else if (filter.type === 'year') { query += " WHERE strftime('%Y', timestamp) = ?"; params.push(filter.val); }
-  else if (filter.type === 'current') { query += " WHERE strftime('%m-%Y', timestamp) = strftime('%m-%Y', 'now')"; }
-  
-  query += " ORDER BY timestamp DESC";
-  return db.prepare(query).all(...params);
+export function deleteLastTx(userCode) {
+    // Cari transaksi terakhir berdasarkan user (M/Y) agar tidak salah hapus punya orang lain
+    const stmt = db.prepare("SELECT * FROM transactions WHERE user = ? ORDER BY id DESC LIMIT 1");
+    const last = stmt.get(userCode);
+    
+    if (last) {
+        db.prepare("DELETE FROM transactions WHERE id = ?").run(last.id);
+        return last;
+    }
+    return null;
 }
+
+export function getCashflowSummary() {
+    // 30 Hari Terakhir
+    const income = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE category = 'Pendapatan' AND timestamp >= date('now', '-30 days')").get();
+    const expense = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE category != 'Pendapatan' AND amount < 0 AND timestamp >= date('now', '-30 days')").get();
+    return { income: income.total || 0, expense: Math.abs(expense.total || 0) };
+}
+
+// Fungsi dummy agar tidak error jika dipanggil index lama, 
+// tapi kita sudah pakai logic baru di index.js
+export function getFilteredTransactions(filter) { return []; } 
+export function resetAccountBalance() { return; }
