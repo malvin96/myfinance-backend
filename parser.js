@@ -29,111 +29,124 @@ function normalizeAccount(raw) {
 }
 
 function parseAmount(str) {
-  if (/[\+\-\*\/]/.test(str) && /\d/.test(str)) {
-    try {
-      let cleanExp = str.toLowerCase()
-        .replace(/k|rb/g, '000')
-        .replace(/jt/g, '000000')
-        .replace(/[^0-9\+\-\*\/\.]/g, ''); 
-      return eval(cleanExp); 
-    } catch (e) { return 0; }
-  }
-
-  let cleanStr = str.replace(/[^0-9kjtbrb.,]/g, '');
-  let num = parseFloat(cleanStr.replace(/[k|jt|rb]/g, ''));
-  if (str.includes('k') || str.includes('rb')) num *= 1000;
-  else if (str.includes('jt')) num *= 1000000;
-  return num;
+  if (/[\+\-\*\/]/.test(str)) return null; 
+  let numStr = str.toLowerCase().replace(/rp|\./g, '').replace(',', '.');
+  let multiplier = 1;
+  
+  if (numStr.endsWith('jt')) { multiplier = 1000000; numStr = numStr.replace('jt',''); }
+  else if (numStr.endsWith('juta')) { multiplier = 1000000; numStr = numStr.replace('juta',''); }
+  else if (numStr.endsWith('k') || numStr.endsWith('rb') || numStr.endsWith('ribu')) { multiplier = 1000; numStr = numStr.replace(/k|rb|ribu/g,''); }
+  
+  const val = parseFloat(numStr);
+  return isNaN(val) ? null : val * multiplier;
 }
 
-export function parseInput(text, senderId) {
-  if (!text) return [];
-  const lines = text.split('\n');
-  const results = [];
+export function parseInput(text, senderName) {
+  const line = text.trim();
+  let user = 'M'; 
+  if (senderName && senderName.toLowerCase().includes('yovita')) user = 'Y';
 
-  for (let line of lines) {
-    line = line.trim().toLowerCase();
-    if (!line) continue;
+  // 1. HELP / MENU
+  if (/^(menu|help|bantuan|\?)$/i.test(line)) return { type: 'help' };
 
-    let user = senderId === 5023700044 ? 'M' : 'Y';
-    if (line.startsWith('y ')) { user = 'Y'; line = line.substring(2).trim(); }
-    else if (line.startsWith('m ')) { user = 'M'; line = line.substring(2).trim(); }
+  // 2. EXPORT & FILES
+  if (/^(rekap|summary|saldo|balance)$/i.test(line)) return { type: 'rekap' };
+  if (/^(xls|excel|csv)$/i.test(line)) return { type: 'export_xls' };
+  if (/^(pdf|laporan|report)$/i.test(line)) return { type: 'export_pdf' };
+  if (/^(backup|db)$/i.test(line)) return { type: 'backup_now' };
 
-    const cmd = line.split(' ')[0];
-
-    // EXPORT PDF
-    if (line.startsWith('export pdf') || line.startsWith('pdf')) { 
-      let filter = { type: 'current', title: 'Laporan Bulan Ini', val: null };
-      if (line.includes('hari') || line.includes('daily')) {
-        const today = new Date().toISOString().slice(0, 10);
-        filter = { type: 'day', title: `Laporan Harian (${today})`, val: today };
-      } 
-      else if (line.includes('minggu') || line.includes('week')) {
-        filter = { type: 'week', title: 'Laporan 7 Hari Terakhir', val: null };
-      }
-      else if (line.includes('tahun') || line.includes('year')) {
-        const year = new Date().getFullYear().toString();
-        filter = { type: 'year', title: `Laporan Tahunan ${year}`, val: year };
-      }
-      else if (line.match(/\d{4}-\d{2}/)) { 
-        const mDate = line.match(/(\d{4}-\d{2})/)[1];
-        filter = { type: 'month', title: `Laporan Bulan ${mDate}`, val: mDate };
-      }
-      results.push({ type: 'export_pdf', filter }); continue; 
-    }
-
-    if (/^(help|menu|tolong|list|ls|\?)$/.test(cmd) && !line.includes('tx')) { 
-      results.push({ type: 'list' }); continue; 
-    }
-
-    if (/^(history|hist|riwayat)$/.test(cmd)) {
-      const limitMatch = line.match(/\d+/); 
-      const limit = limitMatch ? parseInt(limitMatch[0]) : 10;
-      results.push({ type: 'history', limit }); continue; 
-    }
-
-    if (/^(rekap|rkap|rekp|reakp|saldo|sldo|sld|cek|balance)$/.test(cmd)) { results.push({ type: 'rekap' }); continue; }
-    if (/^(koreksi|undo|batal|hapus|del|cancel)$/.test(line)) { results.push({ type: 'koreksi', user }); continue; }
-    if (/^(backup|db|unduh)$/.test(line)) { results.push({ type: 'backup' }); continue; }
-
-    // [UPDATE] SET SALDO (Support Alias 'ss')
-    const mSaldo = line.match(/^(?:set\s+saldo|ss)\s+(.+)\s+(.+)$/); 
-    if (mSaldo) { 
-        results.push({ 
-            type: 'set_saldo', 
-            user, 
-            account: normalizeAccount(mSaldo[1]), 
-            amount: parseAmount(mSaldo[2]) 
-        }); continue; 
-    }
-    
-    // [UPDATE] TRANSFER (Support Alias 'tf', 'mv')
-    const mPindah = line.match(/^(?:pindah|tf|mv|transfer)\s+(.+)\s+(.+)\s+(.+)$/); 
-    if (mPindah) { 
-        results.push({ 
-            type: 'transfer_akun', 
-            user, 
-            amount: parseAmount(mPindah[1]), 
-            from: normalizeAccount(mPindah[2]), 
-            to: normalizeAccount(mPindah[3]),   
-            note: `Pindah ${normalizeAccount(mPindah[2])} ke ${normalizeAccount(mPindah[3])}` 
-        }); continue; 
-    }
-
-    const tokens = line.split(/\s+/);
-    const amountIdx = tokens.findIndex(t => /^[\d\.\+\-\*\/]+([.,]\d+)?[k|jt|rb]*$/i.test(t));
-    
-    if (amountIdx !== -1 && tokens.length >= 2) {
-      const amountRaw = parseAmount(tokens[amountIdx]);
-      const otherTokens = tokens.filter((_, i) => i !== amountIdx);
-      let rawAccount = otherTokens.pop(); 
-      let account = normalizeAccount(rawAccount);
-      let note = otherTokens.join(' ');
-      const category = detectCategory(note);
-      if (!note) note = category;
-      const amount = (category === "Pendapatan") ? Math.abs(amountRaw) : -Math.abs(amountRaw);
-      results.push({ type: 'tx', user, amount, note, account, category });
-    }
+  // 3. EDIT & UNDO
+  if (/^(koreksi|undo|batal|del|hapus)$/i.test(line)) return { type: 'koreksi', user };
+  
+  // 4. SET SALDO (Strict)
+  const mSaldo = line.match(/^(?:set\s+saldo|ss)\s+(.+)\s+(.+)$/i); 
+  if (mSaldo) { 
+      return { 
+          type: 'set_saldo', 
+          user, 
+          account: normalizeAccount(mSaldo[1]), 
+          amount: parseAmount(mSaldo[2]) || 0
+      };
   }
-  return results;
+
+  // 5. HISTORY / RIWAYAT [BARU]
+  // Format: history, history hari, history minggu
+  const mHist = line.match(/^(?:history|riwayat|cek)(?:\s+(hari|minggu|bulan))?$/i);
+  if (mHist) {
+      let filter = 'day'; // Default hari ini
+      if (mHist[1] === 'minggu') filter = 'week';
+      if (mHist[1] === 'bulan') filter = 'month';
+      return {
+          type: 'history',
+          filter: filter,
+          val: new Date().toISOString().slice(0, 10) // Digunakan untuk filter hari/bulan di db.js
+      };
+  }
+
+  // 6. TRANSFER
+  const mPindah = line.match(/^(?:pindah|tf|mv|transfer)\s+(.+)\s+(.+)\s+(.+)$/i); 
+  if (mPindah) {
+      // Logic mendeteksi posisi angka
+      const tokens = [mPindah[1], mPindah[2], mPindah[3]];
+      const amountIdx = tokens.findIndex(t => parseAmount(t) !== null);
+      
+      if (amountIdx !== -1) {
+          const amount = parseAmount(tokens[amountIdx]);
+          const accounts = tokens.filter((_, i) => i !== amountIdx);
+          return { 
+              type: 'transfer_akun', 
+              user, 
+              amount: amount, 
+              from: normalizeAccount(accounts[0]), 
+              to: normalizeAccount(accounts[1])
+          }; 
+      }
+  }
+
+  // 7. TRANSAKSI BIASA
+  const tokens = line.split(/\s+/);
+  const amountIdx = tokens.findIndex(t => /^[0-9\.\,]+[k|jt|rb]*$/i.test(t)); // Simple regex
+  
+  // Regex lebih kuat untuk amount (seperti fungsi parseAmount)
+  const realAmountIdx = tokens.findIndex(t => parseAmount(t) !== null);
+
+  if (realAmountIdx !== -1 && tokens.length >= 2) {
+    const amountRaw = parseAmount(tokens[realAmountIdx]);
+    const otherTokens = tokens.filter((_, i) => i !== realAmountIdx);
+    
+    // Cek apakah kata pertama adalah akun
+    let account = 'cash'; // Default
+    let note = otherTokens.join(' ');
+    
+    // Cek token pertama apakah akun?
+    const firstWord = otherTokens[0];
+    const detectedAccount = normalizeAccount(firstWord);
+    
+    if (detectedAccount !== 'Lainnya' && detectedAccount !== firstWord.toLowerCase()) {
+        // Jika firstWord dikenali sebagai alias akun yang valid
+        account = detectedAccount;
+        note = otherTokens.slice(1).join(' ');
+    } else if (ACCOUNT_MAP[firstWord.toLowerCase()]) {
+         // Jika exact match
+         account = firstWord.toLowerCase();
+         note = otherTokens.slice(1).join(' ');
+    }
+
+    const category = detectCategory(note);
+    
+    // Logika Expense vs Income
+    let finalAmount = -Math.abs(amountRaw); // Default Pengeluaran
+    if (category === 'Pendapatan') finalAmount = Math.abs(amountRaw);
+
+    return {
+      type: 'tx',
+      user,
+      account,
+      amount: finalAmount,
+      category,
+      note
+    };
+  }
+
+  return null;
 }
