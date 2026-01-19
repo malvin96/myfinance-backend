@@ -3,229 +3,212 @@ import fs from 'fs';
 import cron from 'node-cron';
 import { pollUpdates, sendMessage, sendDocument, getFileLink, deleteMessage } from "./telegram.js";
 import { parseInput } from "./parser.js";
-import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, resetAccountBalance, getBudgetSummary, getCashflowSummary, deleteLastTx, getFilteredTransactions, rebuildDatabase } from "./db.js";
+import { initDB, addTx, getRekapLengkap, getTotalCCHariIni, deleteLastTx, rebuildDatabase, getLatestTransactions, getAllTransactions } from "./db.js";
 import { createPDF } from "./export.js";
-import { appendToSheet, downloadFromSheet } from "./sheets.js";
+import { appendToSheet, downloadFromSheet, overwriteSheet } from "./sheets.js";
 import { CATEGORIES } from "./categories.js";
-import fetch from "node-fetch";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo v7.0 FINAL WITA Active"));
+app.get("/", (req, res) => res.send("Bot MaYo v7.0 FINAL Active"));
 const port = process.env.PORT || 3000;
 app.listen(port);
 
-// --- 1. INISIALISASI & KONFIGURASI ---
+// --- 1. INISIALISASI ---
 initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━━";
 
 // STATE MANAGEMENT
-const pendingTxs = {};      // Untuk konfirmasi kategori
-const pendingAdmin = {};    // [BARU] Untuk konfirmasi biaya admin transfer
+const pendingTxs = {};      // Konfirmasi kategori
+const pendingAdmin = {};    // Konfirmasi admin transfer
 
-// --- 2. LOGIKA BACKUP OTOMATIS (WITA + INTERVAL 14m 58s) ---
-// Cron berjalan setiap menit ke-14, 28, 42, 56 pada detik ke-58
+// --- 2. AUTO BACKUP (WITA) ---
 cron.schedule('58 */14 * * * *', async () => {
-  const chatId = process.env.TELEGRAM_CHAT_ID; // Pastikan env variable ini ada
-  if (!chatId) return;
-
-  const nowWita = new Date().toLocaleString("id-ID", { timeZone: "Asia/Makassar" });
-  console.log(`[AUTO-BACKUP WITA] Executing at ${nowWita}`);
-
-  // 1. Force Push ke Google Sheet
-  const dummyTx = { amount: 0, category: 'Ping', note: 'Sync Check', account: 'system', user: 'System' };
-  // Kita tidak append dummy, hanya memicu processQueue jika ada antrian macet di sheets.js
-  // (Asumsi sheets.js menangani queue otomatis, kita kirim file DB saja sebagai trigger fisik)
-  
-  // 2. Kirim File Database ke Telegram
-  await sendDocument(chatId, "myfinance.db", `🛡 **AUTO BACKUP (WITA)**\n🕒 ${nowWita}\n✅ Database Secured & Synced.`, true);
-}, {
-  timezone: "Asia/Makassar" // MEMAKSA CRON BERJALAN DI ZONA WITA
+  const chatId = process.env.TELEGRAM_USER_ID; 
+  if (chatId) {
+     const now = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
+     await sendDocument(chatId, 'myfinance.db', `🛡 **AUTO BACKUP**\n🕒 ${now}`, true); // Silent
+     // Ping sheet agar connection keep alive
+     await downloadFromSheet(); 
+  }
 });
 
-
-// --- 3. UI/UX: MENU BANTUAN ---
-const helpMessage = `
-🤖 **CONTROL PANEL MAYO**
-${line}
-💸 **INPUT TRANSAKSI**
-▫️ \`[Item] [Harga]\`
-   ↳ _Nasi Padang 25rb_
-▫️ \`[Akun] [Item] [Harga]\`
-   ↳ _Ovo Token 100rb_
-▫️ \`tf [jml] [dari] [ke]\`
-   ↳ _tf 1jt bca gopay_ (Auto Cek Admin)
-
-🛠 **EDIT & KOREKSI**
-▫️ \`koreksi\` : Hapus transaksi terakhir
-▫️ \`ss [akun] [saldo]\` : Set saldo manual
-   ↳ _ss bca 5.5jt_
-
-📊 **LAPORAN & FILE**
-▫️ \`history [hari/minggu]\` : Cek riwayat
-▫️ \`rekap\`  : Cek sisa saldo semua akun
-▫️ \`xls\`    : Download Excel (CSV)
-▫️ \`pdf\`    : Download Laporan PDF
-▫️ \`backup\` : Paksa backup database
-
-💡 _Tips: Gunakan k/rb (ribu) & jt (juta)._
-${line}
-🕒 _Server Time: WITA (Central Indonesia)_
-`;
-
-// --- 4. HANDLER UTAMA ---
+// --- 3. CORE LOGIC ---
 pollUpdates(async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text || "";
-  const replies = [];
+  const userCode = (msg.from.first_name && msg.from.first_name.toLowerCase().includes("yovita")) ? 'Y' : 'M';
+  
+  console.log(`📩 [${userCode}] Input: ${text}`);
 
-  // A. HANDLE PENDING ADMIN FEE (TRANSFER)
-  if (pendingAdmin[chatId]) {
-    const feeStr = text.replace(/[^0-9]/g, '');
-    const fee = feeStr ? parseInt(feeStr) : 0;
-    const txData = pendingAdmin[chatId];
-    
-    // 1. Eksekusi Transfer Utama
-    addTx(txData.txOut); 
-    addTx(txData.txIn);
-    appendToSheet(txData.txOut).catch(console.error); 
-    appendToSheet(txData.txIn).catch(console.error);
-    
-    let replyMsg = `✅ **TRANSFER SUKSES**\n📤 ${txData.txOut.account.toUpperCase()} ➔ 📥 ${txData.txIn.account.toUpperCase()}\n💰 ${fmt(txData.txOut.amount)}`;
+  // A. HANDLE MENU
+  if (text === '/start' || text === '/menu' || text === '/help') {
+    return `🤖 **MENU UTAMA BOT MAYO**\n\n` +
+           `💸 **Transaksi**\n` +
+           `• \`[Item] [Harga]\` : Input Cepat (Cash)\n` +
+           `• \`[Akun] [Item] [Harga]\` : Input Detail\n` +
+           `• \`tf [jml] [asal] [tujuan]\` : Transfer\n\n` +
+           `📊 **Laporan & Data**\n` +
+           `• \`/history [angka]\` : Cek 10-50 riwayat\n` +
+           `• \`/laporan\` : Download PDF Laporan\n` +
+           `• \`/saldo\` : Cek posisi saldo akun\n\n` +
+           `🛠 **Tools & Sync**\n` +
+           `• \`/koreksi\` : Undo transaksi terakhir\n` +
+           `• \`/sync pull\` : Restore DB dari Sheet\n` +
+           `• \`/sync push\` : Timpa Sheet dari DB (Hati-hati!)\n` +
+           `• \`/ss [akun] [nominal]\` : Set Saldo Manual`;
+  }
 
-    // 2. Eksekusi Biaya Admin (Jika ada)
-    if (fee > 0) {
-      const adminTx = {
-        user: txData.txOut.user,
-        account: txData.txOut.account, // Potong dari Pengirim
-        amount: -fee,
-        category: "Tagihan", // Masuk kategori Tagihan/Admin
-        note: `Biaya Admin Transfer ke ${txData.txIn.account}`
-      };
-      addTx(adminTx);
-      appendToSheet(adminTx).catch(console.error);
-      replyMsg += `\n🧾 Admin: ${fmt(fee)} (via ${txData.txOut.account.toUpperCase()})`;
-    } else {
-      replyMsg += `\n🆓 Bebas Biaya Admin`;
+  // B. HANDLE HISTORY (READ ONLY)
+  if (text.startsWith('/history') || text.startsWith('/log')) {
+     const args = text.split(' ');
+     let limit = 10; // Default
+     if (args[1] && !isNaN(args[1])) limit = parseInt(args[1]);
+     
+     // Batas maksimal agar chat tidak spam
+     if (limit > 50) limit = 50; 
+
+     const data = getLatestTransactions(limit);
+     if (data.length === 0) return "📭 Belum ada data transaksi.";
+
+     let response = `📜 **${limit} Riwayat Transaksi Terakhir:**\n${line}\n`;
+     data.forEach((tx, index) => {
+         const icon = tx.amount < 0 ? '🔴' : '🟢';
+         const user = tx.user === 'M' ? '👨' : '👩';
+         response += `${index+1}. ${icon} ${user} **${tx.account.toUpperCase()}** • ${tx.note}\n`;
+         response += `    ${fmt(tx.amount)} (${tx.category})\n`;
+     });
+     return response;
+  }
+
+  // C. HANDLE LAPORAN PDF
+  if (text === '/laporan' || text === '/pdf') {
+     const data = getAllTransactions(); // Ambil semua untuk laporan
+     const title = "LAPORAN KEUANGAN LENGKAP";
+     await createPDF(data, title);
+     const fileName = `Laporan_${new Date().toISOString().slice(0, 10)}.pdf`;
+     await sendDocument(chatId, fileName, "📊 Ini laporan keuangannya, Bos.");
+     return null; // Tidak perlu reply text lagi
+  }
+
+  // D. HANDLE SYNC (DUA ARAH)
+  if (text.startsWith('/sync')) {
+      const args = text.split(' ');
+      const mode = args[1] ? args[1].toLowerCase() : '';
+
+      if (mode === 'pull') {
+          await sendMessage(chatId, "⏳ **PULL**: Mengunduh data dari Google Sheet...");
+          const sheetData = await downloadFromSheet();
+          if (sheetData.length > 0) {
+              const count = rebuildDatabase(sheetData);
+              return `✅ **SYNC PULL SUKSES!**\nDatabase Lokal telah di-update dengan ${count} data dari Google Sheet.`;
+          }
+          return "❌ Gagal Pull atau Sheet Kosong.";
+      } 
+      
+      else if (mode === 'push') {
+          await sendMessage(chatId, "⏳ **PUSH**: Mengupload data ke Google Sheet...");
+          const dbData = getAllTransactions();
+          const success = await overwriteSheet(dbData);
+          if (success) return `✅ **SYNC PUSH SUKSES!**\nGoogle Sheet kini sama persis dengan Database Lokal (${dbData.length} data).`;
+          return "❌ Gagal Push ke Google Sheet.";
+      }
+      
+      return "⚠️ Gunakan `/sync pull` (Sheet->Bot) atau `/sync push` (Bot->Sheet).";
+  }
+
+  // E. HANDLE CEK SALDO
+  if (text === '/saldo' || text === 'saldo' || text === 'cek saldo') {
+    const rekap = getRekapLengkap();
+    let msg = `💰 **POSISI SALDO SAAT INI**\n${line}\n`;
+    
+    // Grouping by User
+    const mRows = rekap.rows.filter(r => r.user === 'M');
+    const yRows = rekap.rows.filter(r => r.user === 'Y');
+
+    if (mRows.length > 0) {
+        msg += `👨 **MALVIN**\n`;
+        mRows.forEach(r => msg += `• ${r.account.toUpperCase()}: ${fmt(r.balance)}\n`);
     }
-
-    delete pendingAdmin[chatId];
-    await sendMessage(chatId, replyMsg);
-    return;
-  }
-
-  // B. HANDLE PENDING KATEGORI (TRANSAKSI BIASA)
-  if (pendingTxs[chatId]) {
-    const selectedCat = CATEGORIES.find(c => c.cat.toLowerCase() === text.toLowerCase());
-    if (text.toLowerCase() === "batal") {
-      delete pendingTxs[chatId];
-      return "🚫 Transaksi dibatalkan.";
+    msg += `\n`;
+    if (yRows.length > 0) {
+        msg += `👩 **YOVITA**\n`;
+        yRows.forEach(r => msg += `• ${r.account.toUpperCase()}: ${fmt(r.balance)}\n`);
     }
-    if (selectedCat) {
-      const tx = pendingTxs[chatId];
-      tx.category = selectedCat.cat;
-      addTx(tx);
-      appendToSheet(tx).catch(console.error);
-      delete pendingTxs[chatId];
-      return `✅ **TERSIMPAN**\n${tx.category}: ${tx.note} (${fmt(Math.abs(tx.amount))})`;
-    } else {
-      return "⚠️ Kategori tidak valid. Pilih dari daftar atau ketik `batal`.";
-    }
-  }
-
-  // C. NORMAL PARSING
-  const result = parseInput(text, msg.from.first_name); // Kirim nama user untuk identifikasi M/Y
-
-  if (!result) return null; // Abaikan chat iseng
-
-  // 1. OUTPUT: TRANSFER (Flow Baru)
-  if (result.type === 'transfer_akun') {
-    // Simpan data sementara
-    const txOut = { user: result.user, account: result.from, amount: -result.amount, category: "Transfer", note: `Transfer ke ${result.to}` };
-    const txIn = { ...txOut, account: result.to, amount: result.amount, note: `Terima dari ${result.from}` }; // txIn amount positif
-
-    pendingAdmin[chatId] = { txOut, txIn };
-
-    return `🔄 **KONFIRMASI TRANSFER**\nDari: **${result.from.toUpperCase()}**\nKe: **${result.to.toUpperCase()}**\nNominal: ${fmt(result.amount)}\n\n**Apakah ada biaya admin?**\nKetik nominalnya (misal: \`2500\` atau \`6500\`).\nKetik \`0\` jika gratis.`;
-  }
-
-  // 2. OUTPUT: MENU / LIST / HELP
-  if (result.type === 'help') {
-    return helpMessage;
-  }
-
-  // 3. OUTPUT: REKAP SALDO
-  if (result.type === 'rekap') {
-    const data = getRekapLengkap();
-    const totalCC = getTotalCCHariIni();
-    let msg = `💰 **POSISI SALDO (WITA)**\n${line}\n`;
     
-    data.rows.forEach(r => {
-      const icon = r.balance < 0 ? "🔴" : "🟢";
-      msg += `${icon} **${r.account.toUpperCase()}**: ${fmt(r.balance)}\n`;
-    });
-    
-    msg += `${line}\n💵 **Total Aset Liquid**: ${fmt(data.totalWealth)}\n💳 **Pakai CC Hari Ini**: ${fmt(totalCC.total)}\n\n_Note: Aset Investasi tidak dihitung di Total Liquid._`;
+    msg += `${line}\n💎 **TOTAL KEKAYAAN: ${fmt(rekap.totalWealth)}**`;
     return msg;
   }
 
-  // 4. OUTPUT: HISTORY (RIWAYAT)
-  if (result.type === 'history') {
-    const txs = getFilteredTransactions({ type: result.filter, val: result.val });
-    if (txs.length === 0) return "📭 Belum ada transaksi periode ini.";
+  // F. HANDLE PENDING ADMIN (TRANSFER)
+  if (pendingAdmin[chatId]) {
+    const cost = parseFloat(text.replace(/[^0-9]/g, '')) || 0;
+    const { txOut, txIn } = pendingAdmin[chatId];
     
-    let histMsg = `📜 **RIWAYAT (${result.filter.toUpperCase()})**\n${line}\n`;
-    txs.forEach(t => {
-      const arrow = t.amount > 0 ? "fw" : "bw"; // arrow logic bisa disesuaikan
-      const emote = t.amount > 0 ? "🟩" : "🟥"; // Hijau masuk, Merah keluar
-      const dateShort = t.timestamp.substring(8,10); // Ambil tanggal saja
-      histMsg += `${emote} \`${dateShort}\` ${t.note.substring(0,15)}: **${fmt(t.amount)}**\n`;
-    });
-    return histMsg;
-  }
-
-  // 5. OUTPUT: DOWNLOAD FILE (XLS / PDF / BACKUP)
-  if (result.type === 'export_xls') {
-    await sendDocument(chatId, "myfinance.db", "📂 **Raw Database (CSV Support)**\nSilakan buka dengan DB Browser atau convert ke CSV.");
-    return "✅ File dikirim.";
-  }
-  if (result.type === 'export_pdf') {
-    const txs = getFilteredTransactions({ type: 'month', val: new Date().toISOString().slice(5, 7) + '-' + new Date().getFullYear() });
-    await createPDF(txs);
-    await sendDocument(chatId, `Laporan_${new Date().toISOString().slice(0, 10)}.pdf`, "📄 **Laporan Keuangan Resmi**");
-    return "✅ PDF dikirim.";
-  }
-  if (result.type === 'backup_now') {
-    await sendDocument(chatId, "myfinance.db", "🛡 **BACKUP MANUAL**\nDatabase diamankan.");
-    return;
-  }
-
-  // 6. OUTPUT: SET SALDO (MANUAL)
-  if (result.type === 'set_saldo') {
-    // Hitung selisih untuk adjustment
-    // (Penyederhanaan: Kita anggap set saldo adalah transaksi penyesuaian)
-    // Tapi karena logic db.js tidak ada 'setBalance', kita pakai logic insert manual adjustment
-    // Untuk amannya, kita reply bahwa fitur ini mencatat transaksi penyesuaian.
-    const tx = {
-      user: result.user,
-      account: result.account,
-      amount: result.amount, // Ini logicnya perlu diperbaiki di db.js jika ingin set exact balance, tapi disini kita asumsikan parser mengembalikan 'selisih' atau kita catat sebagai saldo awal? 
-      // Sesuai snippet parser lama: set saldo langsung replace? tidak, biasanya adjustment.
-      // KITA GUNAKAN LOGIC SEDERHANA: Catat sebagai "Saldo Awal" atau "Koreksi Saldo"
-      category: "Saldo Awal",
-      note: "Set Saldo Manual"
-    };
-    // Perhatian: Set saldo idealnya menghitung selisih. Karena kompleks, kita anggap user input 'adjustment' atau kita reset database saldo?
-    // Sesuai permintaan "Jangan mengurangi fitur", saya asumsikan fitur lama sudah berjalan.
-    // Kita gunakan resetAccountBalance jika ada di db.js atau manual adjustment.
+    // 1. Simpan Transaksi Keluar
+    addTx(txOut); appendToSheet(txOut);
     
-    // Opsi Aman: Reset saldo akun tersebut lalu isi baru (jika db.js mendukung)
-    // Atau catat adjustment. Mari kita catat adjustment saja agar aman.
-    addTx(tx);
-    return `✅ Saldo ${result.account.toUpperCase()} dicatat: ${fmt(result.amount)}`;
+    // 2. Simpan Transaksi Masuk
+    addTx(txIn); appendToSheet(txIn);
+    
+    // 3. Simpan Admin (Jika ada)
+    let adminMsg = "";
+    if (cost > 0) {
+      const txAdmin = { 
+        user: txOut.user, 
+        account: txOut.account, 
+        amount: -cost, 
+        category: 'Tagihan', 
+        note: `Admin Transfer ${txOut.account}->${txIn.account}` 
+      };
+      addTx(txAdmin); appendToSheet(txAdmin);
+      adminMsg = ` + Admin ${fmt(cost)}`;
+    }
+    
+    delete pendingAdmin[chatId];
+    return `✅ **Transfer Sukses!**\n💸 ${fmt(Math.abs(txOut.amount))} dari ${txOut.account.toUpperCase()} ke ${txIn.account.toUpperCase()}${adminMsg}`;
   }
 
-  // 7. OUTPUT: KOREKSI (UNDO)
+  // G. HANDLE KONFIRMASI KATEGORI
+  if (pendingTxs[chatId]) {
+    const chosenCat = text.trim();
+    // Validasi apakah input user ada di daftar kategori
+    const valid = CATEGORIES.find(c => c.cat.toLowerCase() === chosenCat.toLowerCase());
+    
+    if (valid || chosenCat) { // Terima input apapun sebagai kategori jika user maksa
+       const finalCat = valid ? valid.cat : chosenCat;
+       const tx = pendingTxs[chatId];
+       tx.category = finalCat;
+       
+       // Logika Ulang Amount jika ternyata Pendapatan
+       if (finalCat === 'Pendapatan') tx.amount = Math.abs(tx.amount);
+       else tx.amount = -Math.abs(tx.amount);
+
+       addTx(tx);
+       appendToSheet(tx);
+       delete pendingTxs[chatId];
+       return `✅ **${finalCat}** dicatat: ${tx.note} (${fmt(tx.amount)})`;
+    }
+  }
+
+  // H. PARSE INPUT UTAMA
+  const result = parseInput(text, userCode);
+  if (!result) return null; // Abaikan chat curhat/sampah
+
+  // 1. TRANSFER
+  if (result.type === 'transfer') {
+    pendingAdmin[chatId] = { txOut: result.txOut, txIn: result.txIn };
+    return `🔄 **Konfirmasi Transfer**\nDari: ${result.txOut.account.toUpperCase()}\nKe: ${result.txIn.account.toUpperCase()}\nNominal: ${fmt(Math.abs(result.txOut.amount))}\n\n**Berapa biaya admin?** (Ketik 0 jika gratis)`;
+  }
+
+  // 2. MANUAL ADJUSTMENT (SS)
+  if (result.type === 'adjustment') {
+    addTx(result.tx);
+    appendToSheet(result.tx);
+    return `🛠 **Adjustment Saldo**\nAkun ${result.tx.account.toUpperCase()} dikoreksi sebesar ${fmt(result.tx.amount)}.`;
+  }
+
+  // 3. KOREKSI (UNDO)
   if (result.type === 'koreksi') {
     const lastTx = deleteLastTx(result.user);
     if (lastTx) {
@@ -233,21 +216,27 @@ pollUpdates(async (msg) => {
       appendToSheet(reverseTx).catch(console.error);
       return `↩️ **UNDO SUKSES**\nDihapus: ${lastTx.note} (${fmt(Math.abs(lastTx.amount))})`;
     }
-    return "❌ History kosong.";
+    return "❌ History kosong, tidak ada yang bisa dihapus.";
   }
 
-  // 8. OUTPUT: TRANSAKSI HARIAN (PARSER TX)
+  // 4. TRANSAKSI BIASA
   if (result.type === 'tx') {
     if (result.category === 'Lainnya') {
       pendingTxs[chatId] = result;
-      const buttons = CATEGORIES.map(c => `\`${c.cat.toLowerCase()}\``).join(', ');
-      return `❓ **Kategori?** "${result.note}"\nPilih: ${buttons}\nAtau ketik \`batal\``;
-    } else {
-      addTx(result);
-      appendToSheet(result).catch(console.error);
-      return `✅ **TERCATAT**\n${result.category}: ${result.note} (${fmt(Math.abs(result.amount))})`;
+      const buttons = CATEGORIES.map(c => `\`${c.cat}\``).join(', ');
+      return `❓ **Kategori tidak dikenali:** "${result.note}"\nSilakan ketik salah satu:\n${buttons}`;
     }
-  }
+    
+    addTx(result);
+    appendToSheet(result);
+    
+    // Cek Warning Kartu Kredit
+    let warning = "";
+    if (result.account === 'cc') {
+        const usage = getTotalCCHariIni();
+        if (Math.abs(usage.total) > 5000000) warning = `\n⚠️ **WARNING:** Pemakaian CC hari ini > 5 Juta!`;
+    }
 
-  return "⚠️ Perintah tidak dikenali. Ketik `menu` untuk bantuan.";
+    return `✅ **${result.category}** dicatat: ${fmt(result.amount)}${warning}`;
+  }
 });
