@@ -1,152 +1,85 @@
 import { detectCategory } from "./categories.js";
+import * as math from 'mathjs';
 
-// --- KAMUS AKUN PINTAR ---
 const ACCOUNT_MAP = {
-  // LIQUID
   'bca': ['bca', 'mbca', 'm-bca', 'qris', 'qr', 'scan', 'transfer', 'debit'],
-  'cash': ['cash', 'tunai', 'dompet', 'uang', 'kes', 'cash'],
+  'cash': ['cash', 'tunai', 'dompet', 'uang', 'kes', 'duit'],
   'gopay': ['gopay', 'gojek', 'gopy'],
   'ovo': ['ovo'],
-  'shopeepay': ['shopeepay', 'shopee', 'spay', 'shope', 'shoppeepay'],
-  
-  // ASET
+  'shopeepay': ['shopeepay', 'shopee', 'spay'],
   'bibit': ['bibit', 'reksadana', 'rdn'],
-  'mirrae': ['mirrae', 'mirae', 'mire', 'saham', 'sekuritas'],
-  'bca sekuritas': ['bca sekuritas', 'bcas', 'bca s', 'bcasekuritas'], 
-  
-  // LAINNYA
-  'cc': ['cc', 'kartu kredit', 'credit card']
+  'mirrae': ['mirrae', 'mirae', 'mire', 'saham'],
+  'bca sekuritas': ['bcas', 'bca sekuritas', 'bcasekuritas'], 
+  'cc': ['cc', 'kartu kredit']
 };
 
-function normalizeAccount(raw) {
-  if (!raw) return 'Lainnya';
-  const lower = raw.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); 
-  
-  for (const [standard, aliases] of Object.entries(ACCOUNT_MAP)) {
-    if (standard === lower || aliases.includes(lower)) return standard;
-  }
-  return lower; 
-}
-
 function parseAmount(str) {
-  if (/[\+\-\*\/]/.test(str)) return null; 
-  let numStr = str.toLowerCase().replace(/rp|\./g, '').replace(',', '.');
-  let multiplier = 1;
-  
-  if (numStr.endsWith('jt')) { multiplier = 1000000; numStr = numStr.replace('jt',''); }
-  else if (numStr.endsWith('juta')) { multiplier = 1000000; numStr = numStr.replace('juta',''); }
-  else if (numStr.endsWith('k') || numStr.endsWith('rb') || numStr.endsWith('ribu')) { multiplier = 1000; numStr = numStr.replace(/k|rb|ribu/g,''); }
-  
-  const val = parseFloat(numStr);
-  return isNaN(val) ? null : val * multiplier;
+  if (!str) return null;
+  let s = str.toLowerCase().replace(/,/g, '.');
+  s = s.replace(/jt/g, '*1000000').replace(/k/g, '*1000').replace(/rb/g, '*1000');
+  try {
+    const result = math.evaluate(s);
+    return isNaN(result) ? null : result;
+  } catch { return null; }
 }
 
-export function parseInput(text, senderName) {
-  const line = text.trim();
-  let user = 'M'; 
-  if (senderName && senderName.toLowerCase().includes('yovita')) user = 'Y';
-
-  // 1. HELP / MENU
-  if (/^(menu|help|bantuan|\?)$/i.test(line)) return { type: 'help' };
-
-  // 2. EXPORT & FILES
-  if (/^(rekap|summary|saldo|balance)$/i.test(line)) return { type: 'rekap' };
-  if (/^(xls|excel|csv)$/i.test(line)) return { type: 'export_xls' };
-  if (/^(pdf|laporan|report)$/i.test(line)) return { type: 'export_pdf' };
-  if (/^(backup|db)$/i.test(line)) return { type: 'backup_now' };
-
-  // 3. EDIT & UNDO
-  if (/^(koreksi|undo|batal|del|hapus)$/i.test(line)) return { type: 'koreksi', user };
-  
-  // 4. SET SALDO (Strict)
-  const mSaldo = line.match(/^(?:set\s+saldo|ss)\s+(.+)\s+(.+)$/i); 
-  if (mSaldo) { 
-      return { 
-          type: 'set_saldo', 
-          user, 
-          account: normalizeAccount(mSaldo[1]), 
-          amount: parseAmount(mSaldo[2]) || 0
-      };
-  }
-
-  // 5. HISTORY / RIWAYAT [BARU]
-  // Format: history, history hari, history minggu
-  const mHist = line.match(/^(?:history|riwayat|cek)(?:\s+(hari|minggu|bulan))?$/i);
-  if (mHist) {
-      let filter = 'day'; // Default hari ini
-      if (mHist[1] === 'minggu') filter = 'week';
-      if (mHist[1] === 'bulan') filter = 'month';
-      return {
-          type: 'history',
-          filter: filter,
-          val: new Date().toISOString().slice(0, 10) // Digunakan untuk filter hari/bulan di db.js
-      };
-  }
-
-  // 6. TRANSFER
-  const mPindah = line.match(/^(?:pindah|tf|mv|transfer)\s+(.+)\s+(.+)\s+(.+)$/i); 
-  if (mPindah) {
-      // Logic mendeteksi posisi angka
-      const tokens = [mPindah[1], mPindah[2], mPindah[3]];
-      const amountIdx = tokens.findIndex(t => parseAmount(t) !== null);
-      
-      if (amountIdx !== -1) {
-          const amount = parseAmount(tokens[amountIdx]);
-          const accounts = tokens.filter((_, i) => i !== amountIdx);
-          return { 
-              type: 'transfer_akun', 
-              user, 
-              amount: amount, 
-              from: normalizeAccount(accounts[0]), 
-              to: normalizeAccount(accounts[1])
-          }; 
-      }
-  }
-
-  // 7. TRANSAKSI BIASA
+export function parseInput(line, userCode) {
+  if (!line) return { type: 'error' };
+  const low = line.toLowerCase();
   const tokens = line.split(/\s+/);
-  const amountIdx = tokens.findIndex(t => /^[0-9\.\,]+[k|jt|rb]*$/i.test(t)); // Simple regex
-  
-  // Regex lebih kuat untuk amount (seperti fungsi parseAmount)
-  const realAmountIdx = tokens.findIndex(t => parseAmount(t) !== null);
 
-  if (realAmountIdx !== -1 && tokens.length >= 2) {
-    const amountRaw = parseAmount(tokens[realAmountIdx]);
-    const otherTokens = tokens.filter((_, i) => i !== realAmountIdx);
-    
-    // Cek apakah kata pertama adalah akun
-    let account = 'cash'; // Default
-    let note = otherTokens.join(' ');
-    
-    // Cek token pertama apakah akun?
-    const firstWord = otherTokens[0];
-    const detectedAccount = normalizeAccount(firstWord);
-    
-    if (detectedAccount !== 'Lainnya' && detectedAccount !== firstWord.toLowerCase()) {
-        // Jika firstWord dikenali sebagai alias akun yang valid
-        account = detectedAccount;
-        note = otherTokens.slice(1).join(' ');
-    } else if (ACCOUNT_MAP[firstWord.toLowerCase()]) {
-         // Jika exact match
-         account = firstWord.toLowerCase();
-         note = otherTokens.slice(1).join(' ');
+  // 1. Logika Koreksi
+  if (low === 'koreksi' || low === 'undo') return { type: 'koreksi' };
+
+  // 2. Logika Transfer (tf bca ke cash 10k)
+  if (low.includes(' ke ') || low.startsWith('tf ')) {
+    const clean = low.replace('tf ', '');
+    const parts = clean.split(' ke ');
+    if (parts.length === 2) {
+      const amountToken = tokens.find(t => parseAmount(t) !== null);
+      if (amountToken) {
+        const amt = parseAmount(amountToken);
+        const fromAcc = Object.keys(ACCOUNT_MAP).find(k => parts[0].includes(k) || ACCOUNT_MAP[k].some(a => parts[0].includes(a))) || 'cash';
+        const toAcc = Object.keys(ACCOUNT_MAP).find(k => parts[1].includes(k) || ACCOUNT_MAP[k].some(a => parts[1].includes(a))) || 'cash';
+        return {
+          type: 'transfer',
+          txOut: { user: userCode, account: fromAcc, amount: -amt, category: 'Transfer', note: `Ke ${toAcc}` },
+          txIn: { user: userCode, account: toAcc, amount: amt, category: 'Transfer', note: `Dari ${fromAcc}` }
+        };
+      }
     }
-
-    const category = detectCategory(note);
-    
-    // Logika Expense vs Income
-    let finalAmount = -Math.abs(amountRaw); // Default Pengeluaran
-    if (category === 'Pendapatan') finalAmount = Math.abs(amountRaw);
-
-    return {
-      type: 'tx',
-      user,
-      account,
-      amount: finalAmount,
-      category,
-      note
-    };
   }
 
-  return null;
+  // 3. Logika SS (Set Saldo)
+  if (low.startsWith('ss ')) {
+    const amountToken = tokens.find(t => parseAmount(t) !== null);
+    const accToken = tokens.find(t => t !== 'ss' && parseAmount(t) === null);
+    if (amountToken) {
+      return { type: 'adjustment', tx: { user: userCode, account: accToken || 'cash', amount: parseAmount(amountToken), category: 'Adjustment', note: 'Set Saldo' } };
+    }
+  }
+
+  // 4. Logika Transaksi (Greedy Search)
+  const amountToken = tokens.find(t => parseAmount(t) !== null);
+  if (!amountToken) return { type: 'error' };
+
+  const amountRaw = parseAmount(amountToken);
+  let account = 'cash'; // Default
+  let noteTokens = tokens.filter(t => t !== amountToken);
+
+  for (let i = 0; i < noteTokens.length; i++) {
+    const t = noteTokens[i].toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const foundAcc = Object.keys(ACCOUNT_MAP).find(key => key === t || ACCOUNT_MAP[key].includes(t));
+    if (foundAcc) {
+      account = foundAcc;
+      noteTokens.splice(i, 1);
+      break;
+    }
+  }
+
+  const note = noteTokens.join(' ') || 'Tanpa catatan';
+  const category = detectCategory(note);
+  const finalAmount = category === 'Pendapatan' ? Math.abs(amountRaw) : -Math.abs(amountRaw);
+
+  return { type: 'tx', category, tx: { user: userCode, account, amount: finalAmount, category, note } };
 }
