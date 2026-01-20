@@ -1,7 +1,7 @@
 import express from "express";
 import fs from 'fs';
 import cron from 'node-cron';
-import { pollUpdates, sendMessage, sendDocument } from "./telegram.js";
+import { pollUpdates, sendMessage, sendDocument, deleteMessage } from "./telegram.js";
 import { parseInput } from "./parser.js";
 import { initDB, addTx, getRekapLengkap, deleteLastTx, rebuildDatabase, getLatestTransactions, getAllTransactions } from "./db.js";
 import { createPDF } from "./export.js";
@@ -18,16 +18,36 @@ const line = "━━━━━━━━━━━━━━━━━━━";
 const pendingAdmin = {};    
 const LIQUID_LIST = ['bca', 'cash', 'gopay', 'ovo', 'shopeepay'];
 const ASSET_LIST = ['bibit', 'mirrae', 'bca sekuritas'];
+let lastBackupMsgId = null; // [BARU] Menyimpan ID pesan backup terakhir
 
 // --- [FITUR KUNCI] AUTO BACKUP CRON (14 Menit 58 Detik) ---
-// Menjalankan sync push otomatis setiap interval 14 menit 58 detik
+// Menjalankan sync push otomatis & backup DB setiap interval 14 menit 58 detik
 cron.schedule('58 */14 * * * *', async () => {
   try {
+    // 1. Push ke Google Sheet
     const allData = getAllTransactions();
     if (allData.length > 0) {
       const success = await overwriteSheet(allData);
       if (success) console.log(`[AUTO BACKUP] Success push ${allData.length} rows at ${new Date().toLocaleTimeString()}`);
     }
+
+    // 2. [BARU] Kirim Backup DB ke Telegram Owner
+    const ownerId = process.env.TELEGRAM_USER_ID;
+    if (ownerId) {
+        // Hapus pesan backup sebelumnya jika ada
+        if (lastBackupMsgId) {
+            await deleteMessage(ownerId, lastBackupMsgId);
+        }
+        // Kirim file DB baru
+        const caption = `💾 **AUTO BACKUP DATABASE**\n📅 ${new Date().toLocaleString('id-ID')}\n_Backup otomatis setiap ±15 menit._`;
+        const result = await sendDocument(ownerId, "myfinance.db", caption, true); // Silent = true
+        
+        // Simpan ID pesan untuk dihapus nanti
+        if (result && result.ok && result.result) {
+            lastBackupMsgId = result.result.message_id;
+        }
+    }
+
   } catch (err) {
     console.error("[AUTO BACKUP ERROR]", err);
   }
@@ -55,7 +75,21 @@ const handleMessage = async (msg) => {
 
   // 1. PERINTAH SISTEM
   if (lowText === 'menu' || lowText === 'help' || lowText === '/start') {
-    return "🏠 **MENU BOT**\n" + line + "\n• Ketik langsung: `makan 50k` (Greedy)\n• `Saldo` : Cek posisi keuangan\n• `ss [akun] [nominal]` : Set Saldo\n• `tf [akun] ke [tujuan] [nom]` : Transfer\n• `History` (10, 20, dll)\n• `Laporan` : Download Rekap PDF\n• `Sync pull` : Tarik data Sheet\n• `Sync push` : Paksa backup ke Sheet\n• `Koreksi` : Hapus transaksi terakhir";
+    return `🤖 **SISTEM KEUANGAN MAYO**\n${line}\n` +
+           `💡 *PANDUAN CEPAT*\n` +
+           `• Ketik langsung: \`makan 50k\`\n` +
+           `  _(Bot otomatis deteksi kategori)_\n\n` +
+           `💰 *KEUANGAN*\n` +
+           `• \`Saldo\` : Cek posisi keuangan\n` +
+           `• \`History\` : Lihat transaksi terakhir\n` +
+           `• \`History (20)\` : Lihat 20 data, dst\n` +
+           `• \`Laporan\` : Download PDF Lengkap\n\n` +
+           `🛠 *ALAT BANTU*\n` +
+           `• \`ss [akun] [nominal]\` : Set Saldo\n` +
+           `• \`tf [akun] ke [tujuan] [nom]\` : Transfer\n` +
+           `• \`Koreksi\` : Hapus input terakhir\n` +
+           `• \`Sync pull\` : Ambil data Sheet\n` +
+           `• \`Sync push\` : Backup paksa ke Sheet`;
   }
 
   if (lowText === 'saldo' || lowText === 'cek saldo') {
@@ -74,12 +108,22 @@ const handleMessage = async (msg) => {
   }
 
   if (lowText.startsWith('history')) {
-    const limit = parseInt(lowText.replace('history', '').trim()) || 10;
+    // [FIX] Sanitasi input agar format (10) bisa terbaca
+    const numOnly = lowText.replace(/[^0-9]/g, ''); 
+    const limit = parseInt(numOnly) || 10;
+    
     const data = getLatestTransactions(limit);
-    let res = `📜 **HISTORY TRANSAKSI**\n${line}\n`;
+    let res = `📜 **HISTORY TRANSAKSI (${limit} Data)**\n${line}\n`;
+    
     data.forEach(r => {
-      const t = new Date(r.timestamp).toLocaleDateString('id-ID', {day:'2-digit', month:'2-digit'});
-      res += `${t} [${r.user}] ${r.account.toUpperCase()} | ${fmt(r.amount)}\n   └ ${r.note}\n`;
+      // [FIX] Replace spasi dengan 'T' agar valid ISO format di JS
+      let dateStr = "Invalid Date";
+      try {
+          const cleanTs = r.timestamp ? r.timestamp.replace(" ", "T") : "";
+          dateStr = new Date(cleanTs).toLocaleDateString('id-ID', {day:'2-digit', month:'2-digit'});
+      } catch (e) { dateStr = "??/??"; }
+
+      res += `${dateStr} [${r.user}] ${r.account.toUpperCase()} | ${fmt(r.amount)}\n   └ ${r.note}\n`;
     });
     return res + `${line}\n*Menampilkan ${data.length} data terakhir.*`;
   }
