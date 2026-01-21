@@ -10,8 +10,11 @@ export async function createPDF(data, title = "LAPORAN KEUANGAN") {
       const stream = fs.createWriteStream(fileName);
       doc.pipe(stream);
 
+      // [UPDATE WITA] Generate Date
+      const dateString = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Makassar' });
+
       doc.fontSize(16).font('Helvetica-Bold').text(title.toUpperCase(), { align: 'center' });
-      doc.fontSize(10).font('Helvetica').text(`Generated: ${new Date().toLocaleString('id-ID')}`, { align: 'center' });
+      doc.fontSize(10).font('Helvetica').text(`Generated: ${dateString} WITA`, { align: 'center' });
       doc.moveDown();
 
       // --- I. SALDO AKHIR ---
@@ -44,15 +47,17 @@ export async function createPDF(data, title = "LAPORAN KEUANGAN") {
       data.forEach(r => {
         const ts = r.timestamp.padEnd(20);
         const u = r.user;
-        const a = r.account.toUpperCase().padEnd(8).slice(0,8);
-        const c = r.category.padEnd(8).slice(0,8);
-        const am = Math.round(r.amount).toString().padStart(11);
-        const n = (r.note || '-').slice(0, 25);
-        doc.text(`${ts} | ${u} | ${a} | ${c} | ${am} | ${n}`);
+        const acc = r.account.toUpperCase().padEnd(9).slice(0, 9);
+        const cat = r.category.padEnd(9).slice(0, 9);
+        const amt = Math.round(r.amount).toString().padStart(11);
+        const note = r.note.slice(0, 25);
+        
+        doc.text(`${ts} | ${u} | ${acc} | ${cat} | ${amt} | ${note}`);
       });
 
       doc.end();
       stream.on('finish', () => resolve(fileName));
-    } catch (e) { reject(e); }
+      stream.on('error', reject);
+    } catch (err) { reject(err); }
   });
 }
