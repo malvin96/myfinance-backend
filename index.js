@@ -8,7 +8,7 @@ import { createPDF } from "./export.js";
 import { appendToSheet, downloadFromSheet, overwriteSheet } from "./sheets.js";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo Locked v9.1 Active (Format Fixed)"));
+app.get("/", (req, res) => res.send("Bot MaYo Locked v9.2 Active (Sync Fixed)"));
 app.listen(process.env.PORT || 3000);
 
 initDB();
@@ -24,7 +24,7 @@ let lastBackupMsgId = null;
 cron.schedule('58 */14 * * * *', async () => {
   try {
     const allData = getAllTransactions();
-    if (allData.length > 0) await overwriteSheet(allData); // Auto Sync format baru
+    if (allData.length > 0) await overwriteSheet(allData);
 
     const ownerId = process.env.TELEGRAM_USER_ID;
     if (ownerId) {
@@ -74,8 +74,9 @@ const handleMessage = async (msg) => {
                `🔄 tf [jml] [dari] [ke] (Transfer)\n` +
                `↩️ koreksi (Undo)\n` +
                `📊 rekap | history | pdf\n` +
-               `💾 backup (Manual DB)\n` +
-               `☁️ sync push (Update Sheet)`;
+               `☁️ sync pull (Sheet ➔ Bot)\n` +
+               `☁️ sync push (Bot ➔ Sheet)\n` +
+               `💾 backup (Manual DB)`;
     }
 
     if (lowText.includes('rekap') || lowText.includes('saldo') || lowText === 'cek') {
@@ -106,6 +107,24 @@ const handleMessage = async (msg) => {
         return res;
     }
 
+    // [FITUR PULIH] SYNC PULL
+    if (lowText === 'sync pull') {
+        await sendMessage(chatId, "⏳ Sedang menarik data dari Google Sheet (Rebuild DB)...");
+        const data = await downloadFromSheet();
+        if (data.length > 0) {
+            rebuildDatabase(data); // Fungsi ini ada di db.js (tidak perlu diubah)
+            return `✅ **SYNC PULL SUKSES**\nDatabase lokal disamakan dengan Sheet.\n📥 Total Data: ${data.length} baris.`;
+        }
+        return "❌ Gagal pull. Sheet kosong atau error koneksi.";
+    }
+
+    // SYNC PUSH
+    if (lowText === 'sync push') {
+        const allData = getAllTransactions();
+        await overwriteSheet(allData);
+        return `✅ **SYNC PUSH SUKSES**\nMengirim ${allData.length} data ke Sheet.`;
+    }
+
     if (lowText.startsWith('history')) {
         const numOnly = lowText.replace(/[^0-9]/g, ''); 
         const limit = parseInt(numOnly) || 10;
@@ -119,12 +138,6 @@ const handleMessage = async (msg) => {
             res += `${date} ${icon} ${noteTrunc} : ${fmt(Math.abs(r.amount))}\n`;
         });
         return res;
-    }
-
-    if (lowText === 'sync push') {
-        const allData = getAllTransactions();
-        await overwriteSheet(allData);
-        return `✅ Berhasil Update Format Sheet (${allData.length} data).`;
     }
 
     if (lowText.startsWith('export') || lowText.startsWith('pdf')) {
