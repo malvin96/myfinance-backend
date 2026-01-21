@@ -11,9 +11,9 @@ const auth = new JWT({
 
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
 
-// --- HELPER FORMATTING (Sesuai CSV Anda) ---
+// --- HELPER FORMATTING (Sesuai Format Sheet Anda) ---
 const getSheetDate = (dateInput) => {
-    // Output: YYYY-MM-DD HH:mm:ss (Sesuai format tabel Anda)
+    // Output: YYYY-MM-DD HH:mm:ss
     const d = dateInput ? new Date(dateInput.replace(" ", "T")) : new Date();
     const pad = (n) => n.toString().padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -42,7 +42,6 @@ async function processQueue() {
       await doc.loadInfo();
       const sheet = doc.sheetsByIndex[0];
       
-      // Persiapan Data Baris (Row)
       const rowData = {
         'Timestamp': getSheetDate(tx.timestamp),
         'User': tx.user === 'M' ? 'Malvin' : (tx.user === 'Y' ? 'Yovita' : tx.user),
@@ -50,18 +49,18 @@ async function processQueue() {
         'Category': tx.category,
         'Note': tx.note,
         'Account': tx.account.toUpperCase(),
-        'Amount': Math.abs(tx.amount), // Angka Absolut (Positif)
-        'RealAmount': tx.amount,       // Angka Asli (+/-)
-        'Bulan': getMonthName(tx.timestamp), // Auto-fill Value
-        'Tahun': getYear(tx.timestamp)       // Auto-fill Value
+        'Amount': Math.abs(tx.amount), // Positif (Tampilan)
+        'RealAmount': tx.amount,       // Negatif/Positif (Rumus)
+        'Bulan': getMonthName(tx.timestamp),
+        'Tahun': getYear(tx.timestamp)
       };
 
       await sheet.addRow(rowData);
-      console.log(`✅ Row added to Sheet: ${tx.note} | ${rowData.Timestamp}`);
+      console.log(`✅ Row added to Sheet: ${tx.note}`);
     } catch (error) {
       console.error("❌ Error Add Row:", error.message);
     }
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Delay aman
+    await new Promise(resolve => setTimeout(resolve, 1000));
   }
   isProcessing = false;
 }
@@ -72,27 +71,38 @@ export function appendToSheet(tx) {
 }
 
 // --- 2. SYNC PULL (Sheet -> Bot) ---
+// [FIX] Mengambil data dari Sheet format baru dan menormalisasi ke format Bot
 export async function downloadFromSheet() {
   try {
     await doc.loadInfo();
     const sheet = doc.sheetsByIndex[0];
     const rows = await sheet.getRows();
     
-    return rows.map(row => ({
-      timestamp: row.get('Timestamp'),
-      user: (row.get('User') === 'Malvin' || row.get('User') === 'M') ? 'M' : 'Y',
-      account: row.get('Account') ? row.get('Account').toLowerCase() : 'cash',
-      amount: parseFloat(row.get('RealAmount')), // Ambil value asli
-      category: row.get('Category'),
-      note: row.get('Note')
-    }));
+    return rows.map(row => {
+      // Mapping User: 'Malvin' -> 'M', 'Yovita' -> 'Y'
+      let u = 'M';
+      const sheetUser = row.get('User');
+      if (sheetUser === 'Yovita' || sheetUser === 'Y') u = 'Y';
+      
+      // Ambil RealAmount agar saldo terbaca benar (+/-)
+      const realAmt = parseFloat(row.get('RealAmount')); 
+
+      return {
+        timestamp: row.get('Timestamp'),
+        user: u,
+        account: row.get('Account') ? row.get('Account').toLowerCase() : 'cash',
+        amount: isNaN(realAmt) ? 0 : realAmt,
+        category: row.get('Category'),
+        note: row.get('Note')
+      };
+    });
   } catch (error) {
     console.error("❌ Error Download Sheet:", error.message);
     return [];
   }
 }
 
-// --- 3. SYNC PUSH (Force Overwrite) ---
+// --- 3. SYNC PUSH (Bot -> Sheet) ---
 export async function overwriteSheet(transactions) {
     try {
         console.log("🔄 Sync Push dimulai...");
@@ -101,7 +111,6 @@ export async function overwriteSheet(transactions) {
         
         await sheet.clear(); 
         
-        // Header sesuai CSV Anda
         await sheet.setHeaderRow([
             'Timestamp', 'User', 'Type', 'Category', 'Note', 
             'Account', 'Amount', 'RealAmount', 'Bulan', 'Tahun'
@@ -115,15 +124,15 @@ export async function overwriteSheet(transactions) {
                 'Category': tx.category,
                 'Note': tx.note,
                 'Account': tx.account.toUpperCase(),
-                'Amount': Math.abs(tx.amount), // Absolut
-                'RealAmount': tx.amount,       // Signed
+                'Amount': Math.abs(tx.amount),
+                'RealAmount': tx.amount,
                 'Bulan': getMonthName(tx.timestamp),
                 'Tahun': getYear(tx.timestamp)
             };
         });
 
         await sheet.addRows(rows);
-        console.log(`✅ Sukses Push ${rows.length} data dengan Format Baru.`);
+        console.log(`✅ Sukses Push ${rows.length} data.`);
         return true;
     } catch (error) {
         console.error("❌ Error Overwrite Sheet:", error.message);
