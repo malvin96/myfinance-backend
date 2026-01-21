@@ -8,7 +8,7 @@ import { createPDF } from "./export.js";
 import { appendToSheet, downloadFromSheet } from "./sheets.js";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo Locked v10.1 (Sync Fixed)"));
+app.get("/", (req, res) => res.send("Bot MaYo Locked v10.2 (Date Fix)"));
 app.listen(process.env.PORT || 3000);
 
 initDB();
@@ -96,7 +96,7 @@ const handleMessage = async (msg) => {
         return res;
     }
 
-    // [FITUR UI BARU] HISTORY
+    // [FITUR UI BARU] HISTORY - FIXED DATE
     if (lowText.startsWith('history')) {
         const numOnly = lowText.replace(/[^0-9]/g, ''); 
         const limit = parseInt(numOnly) || 10;
@@ -107,12 +107,14 @@ const handleMessage = async (msg) => {
         let res = `🗓️ **RIWAYAT TRANSAKSI (${data.length})**\n`;
         
         data.forEach(r => {
+            // [FIX] Menggunakan String Slicing (Anti Invalid Date)
+            // Asumsi format DB: "YYYY-MM-DD HH:MM:SS"
             let dateStr = "??/??";
-            try {
-                // Parsing tanggal dari format sheet: 2026-01-21 14:30:00
-                const d = new Date(r.timestamp.replace(" ", "T"));
-                dateStr = d.toLocaleDateString('id-ID', {day:'2-digit', month:'2-digit'});
-            } catch(e){}
+            if (r.timestamp && r.timestamp.length >= 10) {
+                const mo = r.timestamp.substring(5, 7); // Ambil Bulan
+                const da = r.timestamp.substring(8, 10); // Ambil Tanggal
+                dateStr = `${da}/${mo}`;
+            }
 
             const icon = r.amount >= 0 ? '🟢' : '🔴';
             const userNm = r.user === 'M' ? 'Malvin' : 'Yovita';
@@ -126,7 +128,6 @@ const handleMessage = async (msg) => {
         return res + line;
     }
 
-    // [FITUR FIX] SYNC
     if (lowText === 'sync') {
         await sendMessage(chatId, "⏳ **SYNC START**\nSedang menarik & validasi data Sheet...");
         const data = await downloadFromSheet();
