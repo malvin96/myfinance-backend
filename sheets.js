@@ -11,9 +11,8 @@ const auth = new JWT({
 
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
 
-// --- HELPER FORMATTING (Sesuai Format Sheet Anda) ---
+// --- HELPER FORMATTING ---
 const getSheetDate = (dateInput) => {
-    // Output: YYYY-MM-DD HH:mm:ss
     const d = dateInput ? new Date(dateInput.replace(" ", "T")) : new Date();
     const pad = (n) => n.toString().padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -29,7 +28,7 @@ const getYear = (dateInput) => {
     return d.getFullYear();
 };
 
-// --- 1. QUEUE SYSTEM (Antrian Upload) ---
+// --- 1. QUEUE SYSTEM (Antrian Upload ke Sheet) ---
 const queue = [];
 let isProcessing = false;
 
@@ -49,8 +48,8 @@ async function processQueue() {
         'Category': tx.category,
         'Note': tx.note,
         'Account': tx.account.toUpperCase(),
-        'Amount': Math.abs(tx.amount), // Positif (Tampilan)
-        'RealAmount': tx.amount,       // Negatif/Positif (Rumus)
+        'Amount': Math.abs(tx.amount), 
+        'RealAmount': tx.amount,       
         'Bulan': getMonthName(tx.timestamp),
         'Tahun': getYear(tx.timestamp)
       };
@@ -70,8 +69,7 @@ export function appendToSheet(tx) {
   processQueue();
 }
 
-// --- 2. SYNC PULL (Sheet -> Bot) ---
-// [FIX] Mengambil data dari Sheet format baru dan menormalisasi ke format Bot
+// --- 2. SYNC PULL (Sheet adalah Master Data) ---
 export async function downloadFromSheet() {
   try {
     await doc.loadInfo();
@@ -79,12 +77,12 @@ export async function downloadFromSheet() {
     const rows = await sheet.getRows();
     
     return rows.map(row => {
-      // Mapping User: 'Malvin' -> 'M', 'Yovita' -> 'Y'
+      // Mapping User agar kompatibel dengan Bot
       let u = 'M';
       const sheetUser = row.get('User');
       if (sheetUser === 'Yovita' || sheetUser === 'Y') u = 'Y';
       
-      // Ambil RealAmount agar saldo terbaca benar (+/-)
+      // Mengambil 'RealAmount' karena itu yang mengandung nilai +/-
       const realAmt = parseFloat(row.get('RealAmount')); 
 
       return {
@@ -100,42 +98,4 @@ export async function downloadFromSheet() {
     console.error("❌ Error Download Sheet:", error.message);
     return [];
   }
-}
-
-// --- 3. SYNC PUSH (Bot -> Sheet) ---
-export async function overwriteSheet(transactions) {
-    try {
-        console.log("🔄 Sync Push dimulai...");
-        await doc.loadInfo();
-        const sheet = doc.sheetsByIndex[0];
-        
-        await sheet.clear(); 
-        
-        await sheet.setHeaderRow([
-            'Timestamp', 'User', 'Type', 'Category', 'Note', 
-            'Account', 'Amount', 'RealAmount', 'Bulan', 'Tahun'
-        ]);
-        
-        const rows = transactions.map(tx => {
-            return {
-                'Timestamp': getSheetDate(tx.timestamp),
-                'User': tx.user === 'M' ? 'Malvin' : (tx.user === 'Y' ? 'Yovita' : tx.user),
-                'Type': tx.amount >= 0 ? 'Income' : 'Expense',
-                'Category': tx.category,
-                'Note': tx.note,
-                'Account': tx.account.toUpperCase(),
-                'Amount': Math.abs(tx.amount),
-                'RealAmount': tx.amount,
-                'Bulan': getMonthName(tx.timestamp),
-                'Tahun': getYear(tx.timestamp)
-            };
-        });
-
-        await sheet.addRows(rows);
-        console.log(`✅ Sukses Push ${rows.length} data.`);
-        return true;
-    } catch (error) {
-        console.error("❌ Error Overwrite Sheet:", error.message);
-        return false;
-    }
 }
