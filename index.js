@@ -5,10 +5,10 @@ import { pollUpdates, sendMessage, sendDocument, deleteMessage } from "./telegra
 import { parseInput } from "./parser.js";
 import { initDB, addTx, getRekapLengkap, deleteLastTx, rebuildDatabase, getLatestTransactions, getAllTransactions, getTotalCCHariIni } from "./db.js";
 import { createPDF } from "./export.js";
-import { appendToSheet, downloadFromSheet, overwriteSheet } from "./sheets.js";
+import { appendToSheet, downloadFromSheet } from "./sheets.js";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo Locked v9.2 Active (Sync Fixed)"));
+app.get("/", (req, res) => res.send("Bot MaYo Locked v10.0 (Master Sheet)"));
 app.listen(process.env.PORT || 3000);
 
 initDB();
@@ -21,21 +21,23 @@ const ASSET_LIST = ['bibit', 'mirrae', 'bca sekuritas'];
 let lastBackupMsgId = null; 
 
 // --- CRON JOBS ---
+// 1. Auto Backup DB (Setiap menit 14, detik 58)
 cron.schedule('58 */14 * * * *', async () => {
   try {
-    const allData = getAllTransactions();
-    if (allData.length > 0) await overwriteSheet(allData);
-
     const ownerId = process.env.TELEGRAM_USER_ID;
     if (ownerId) {
+        // Hapus pesan backup lama agar chat rapi
         if (lastBackupMsgId) await deleteMessage(ownerId, lastBackupMsgId);
-        const caption = `🔄 Auto-Backup (${new Date().toLocaleString('id-ID')})`;
+        
+        const caption = `💾 **AUTO BACKUP**\n📅 ${new Date().toLocaleString('id-ID')}\n_Database lokal aman._`;
         const result = await sendDocument(ownerId, "myfinance.db", caption, true); 
+        
         if (result && result.ok) lastBackupMsgId = result.result.message_id;
     }
   } catch (err) { console.error("[AUTO BACKUP ERROR]", err); }
 });
 
+// 2. Reminder CC (Jam 21:00)
 cron.schedule('0 21 * * *', async () => {
     const ownerId = process.env.TELEGRAM_USER_ID;
     const ccData = getTotalCCHariIni();
@@ -74,8 +76,7 @@ const handleMessage = async (msg) => {
                `🔄 tf [jml] [dari] [ke] (Transfer)\n` +
                `↩️ koreksi (Undo)\n` +
                `📊 rekap | history | pdf\n` +
-               `☁️ sync pull (Sheet ➔ Bot)\n` +
-               `☁️ sync push (Bot ➔ Sheet)\n` +
+               `☁️ sync (Tarik Data Sheet)\n` +
                `💾 backup (Manual DB)`;
     }
 
@@ -107,37 +108,46 @@ const handleMessage = async (msg) => {
         return res;
     }
 
-    // [FITUR PULIH] SYNC PULL
-    if (lowText === 'sync pull') {
-        await sendMessage(chatId, "⏳ Sedang menarik data dari Google Sheet (Rebuild DB)...");
-        const data = await downloadFromSheet();
-        if (data.length > 0) {
-            rebuildDatabase(data); // Fungsi ini ada di db.js (tidak perlu diubah)
-            return `✅ **SYNC PULL SUKSES**\nDatabase lokal disamakan dengan Sheet.\n📥 Total Data: ${data.length} baris.`;
-        }
-        return "❌ Gagal pull. Sheet kosong atau error koneksi.";
-    }
-
-    // SYNC PUSH
-    if (lowText === 'sync push') {
-        const allData = getAllTransactions();
-        await overwriteSheet(allData);
-        return `✅ **SYNC PUSH SUKSES**\nMengirim ${allData.length} data ke Sheet.`;
-    }
-
+    // [FITUR UTAMA] HISTORY DENGAN UI BARU
     if (lowText.startsWith('history')) {
         const numOnly = lowText.replace(/[^0-9]/g, ''); 
         const limit = parseInt(numOnly) || 10;
         const data = getLatestTransactions(limit);
         
-        let res = `🗓️ ${data.length} TRANSAKSI TERAKHIR\n${line}\n`;
+        let res = `🗓️ **RIWAYAT TRANSAKSI (${limit})**\n`;
+        
         data.forEach(r => {
-            const date = new Date(r.timestamp.replace(" ", "T")).getDate();
-            const icon = r.amount >= 0 ? '📈' : '📉';
-            let noteTrunc = r.note.length > 12 ? r.note.substring(0,12)+".." : r.note;
-            res += `${date} ${icon} ${noteTrunc} : ${fmt(Math.abs(r.amount))}\n`;
+            // Parsing Tanggal
+            let dateStr = "??/??";
+            try {
+                const cleanTs = r.timestamp ? r.timestamp.replace(" ", "T") : "";
+                const d = new Date(cleanTs);
+                dateStr = d.toLocaleDateString('id-ID', {day:'2-digit', month:'2-digit'});
+            } catch(e){}
+
+            // Formatting UI per Item
+            const icon = r.amount >= 0 ? '🟢' : '🔴';
+            const userIcon = r.user === 'M' ? '🧔' : '👩';
+            const userNm = r.user === 'M' ? 'Malvin' : 'Yovita';
+            
+            res += `${line}\n`;
+            res += `📅 ${dateStr} | ${userIcon} ${userNm}\n`;
+            res += `🏦 ${r.account.toUpperCase()} | ${r.note}\n`;
+            res += `${icon} **${fmt(r.amount)}**\n`;
         });
-        return res;
+        
+        return res + line;
+    }
+
+    // [FITUR] SYNC (PULL ONLY)
+    if (lowText === 'sync') {
+        await sendMessage(chatId, "⏳ **SYNC START**\nMenarik data dari Google Sheet sebagai acuan...");
+        const data = await downloadFromSheet();
+        if (data.length > 0) {
+            rebuildDatabase(data); // Wipe local, Insert from Sheet
+            return `✅ **SYNC COMPLETE**\nDatabase lokal berhasil disamakan dengan Google Sheet.\n📥 Total Data: ${data.length} baris.`;
+        }
+        return "❌ Gagal sync. Sheet kosong atau error koneksi.";
     }
 
     if (lowText.startsWith('export') || lowText.startsWith('pdf')) {
@@ -178,7 +188,7 @@ const handleMessage = async (msg) => {
     const result = parseInput(text, userCode);
     
     if (result.type === 'error') {
-        const knownCmds = ['ss', 'tf', 'sync', 'laporan'];
+        const knownCmds = ['ss', 'tf', 'laporan'];
         if (knownCmds.some(x => lowText.startsWith(x))) {
              return `⚠️ **FORMAT SALAH**\nContoh: \`50rb makan bca\`\nAtau ketik \`menu\`.`;
         }
