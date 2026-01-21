@@ -83,7 +83,7 @@ const handleMessage = async (msg) => {
 
     // 1. SYSTEM COMMANDS (MENU UI UPDATE)
     if (lowText === 'menu' || lowText === 'help' || lowText === '/start') {
-        return `🤖 **MENU PERINTAH (WITA)**\n${line}\n` +
+        return `🤖 **MENU PERINTAH**\n${line}\n` +
                `📝 **CATAT TRANSAKSI**\n` +
                `Format: _[Nominal] [Ket] [Akun]_\n` +
                `👉 \`50rb makan siang bca\`\n` +
