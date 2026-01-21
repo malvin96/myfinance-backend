@@ -8,7 +8,7 @@ import { createPDF } from "./export.js";
 import { appendToSheet, downloadFromSheet } from "./sheets.js";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo Locked v10.0 (Master Sheet)"));
+app.get("/", (req, res) => res.send("Bot MaYo Locked v10.1 (Sync Fixed)"));
 app.listen(process.env.PORT || 3000);
 
 initDB();
@@ -21,23 +21,18 @@ const ASSET_LIST = ['bibit', 'mirrae', 'bca sekuritas'];
 let lastBackupMsgId = null; 
 
 // --- CRON JOBS ---
-// 1. Auto Backup DB (Setiap menit 14, detik 58)
 cron.schedule('58 */14 * * * *', async () => {
   try {
     const ownerId = process.env.TELEGRAM_USER_ID;
     if (ownerId) {
-        // Hapus pesan backup lama agar chat rapi
         if (lastBackupMsgId) await deleteMessage(ownerId, lastBackupMsgId);
-        
-        const caption = `💾 **AUTO BACKUP**\n📅 ${new Date().toLocaleString('id-ID')}\n_Database lokal aman._`;
+        const caption = `💾 **AUTO BACKUP**\n📅 ${new Date().toLocaleString('id-ID')}\n_Sheet adalah Master Data._`;
         const result = await sendDocument(ownerId, "myfinance.db", caption, true); 
-        
         if (result && result.ok) lastBackupMsgId = result.result.message_id;
     }
   } catch (err) { console.error("[AUTO BACKUP ERROR]", err); }
 });
 
-// 2. Reminder CC (Jam 21:00)
 cron.schedule('0 21 * * *', async () => {
     const ownerId = process.env.TELEGRAM_USER_ID;
     const ccData = getTotalCCHariIni();
@@ -46,12 +41,6 @@ cron.schedule('0 21 * * *', async () => {
         await sendMessage(ownerId, msg);
     }
 });
-
-const getSisaSaldo = (user, account) => {
-  const rekap = getRekapLengkap();
-  const row = rekap.rows.find(r => r.user === user && r.account.toLowerCase() === account.toLowerCase());
-  return row ? row.balance : 0;
-};
 
 const handleMessage = async (msg) => {
   try {
@@ -85,12 +74,11 @@ const handleMessage = async (msg) => {
         const buildUI = (code, label) => {
             const rows = rekap.rows.filter(r => r.user === code);
             let s = `\n${code === 'M' ? '🧔' : '👩'} ${label}\n💧 Liquid:\n`;
-            
             const liquid = rows.filter(r => LIQUID_LIST.includes(r.account.toLowerCase()));
             liquid.forEach(r => s += `${r.account.toUpperCase()}: ${fmt(r.balance)}\n`);
             const totLiq = liquid.reduce((a,b)=>a+b.balance,0);
             s += `\nTotal ${code} Liquid : ${fmt(totLiq)}\n`;
-
+            
             const assets = rows.filter(r => ASSET_LIST.includes(r.account.toLowerCase()));
             if (assets.length > 0) {
                 s += `\n💼 Aset:\n`;
@@ -108,30 +96,29 @@ const handleMessage = async (msg) => {
         return res;
     }
 
-    // [FITUR UTAMA] HISTORY DENGAN UI BARU
+    // [FITUR UI BARU] HISTORY
     if (lowText.startsWith('history')) {
         const numOnly = lowText.replace(/[^0-9]/g, ''); 
         const limit = parseInt(numOnly) || 10;
         const data = getLatestTransactions(limit);
         
-        let res = `🗓️ **RIWAYAT TRANSAKSI (${limit})**\n`;
+        if (data.length === 0) return `📂 Database Kosong. Silakan ketik 'sync' untuk tarik data.`;
+
+        let res = `🗓️ **RIWAYAT TRANSAKSI (${data.length})**\n`;
         
         data.forEach(r => {
-            // Parsing Tanggal
             let dateStr = "??/??";
             try {
-                const cleanTs = r.timestamp ? r.timestamp.replace(" ", "T") : "";
-                const d = new Date(cleanTs);
+                // Parsing tanggal dari format sheet: 2026-01-21 14:30:00
+                const d = new Date(r.timestamp.replace(" ", "T"));
                 dateStr = d.toLocaleDateString('id-ID', {day:'2-digit', month:'2-digit'});
             } catch(e){}
 
-            // Formatting UI per Item
             const icon = r.amount >= 0 ? '🟢' : '🔴';
-            const userIcon = r.user === 'M' ? '🧔' : '👩';
             const userNm = r.user === 'M' ? 'Malvin' : 'Yovita';
             
             res += `${line}\n`;
-            res += `📅 ${dateStr} | ${userIcon} ${userNm}\n`;
+            res += `📅 ${dateStr} | ${userNm}\n`;
             res += `🏦 ${r.account.toUpperCase()} | ${r.note}\n`;
             res += `${icon} **${fmt(r.amount)}**\n`;
         });
@@ -139,15 +126,20 @@ const handleMessage = async (msg) => {
         return res + line;
     }
 
-    // [FITUR] SYNC (PULL ONLY)
+    // [FITUR FIX] SYNC
     if (lowText === 'sync') {
-        await sendMessage(chatId, "⏳ **SYNC START**\nMenarik data dari Google Sheet sebagai acuan...");
+        await sendMessage(chatId, "⏳ **SYNC START**\nSedang menarik & validasi data Sheet...");
         const data = await downloadFromSheet();
+        
         if (data.length > 0) {
-            rebuildDatabase(data); // Wipe local, Insert from Sheet
-            return `✅ **SYNC COMPLETE**\nDatabase lokal berhasil disamakan dengan Google Sheet.\n📥 Total Data: ${data.length} baris.`;
+            const inserted = rebuildDatabase(data);
+            if (inserted > 0) {
+                 return `✅ **SYNC BERHASIL**\nDatabase lokal diperbarui.\n📥 Ditemukan: ${data.length} baris\n💾 Disimpan: ${inserted} transaksi`;
+            } else {
+                 return `⚠️ **SYNC WARNING**\nData ditemukan (${data.length}) tapi GAGAL disimpan ke DB. Cek log console.`;
+            }
         }
-        return "❌ Gagal sync. Sheet kosong atau error koneksi.";
+        return "❌ Gagal sync. Sheet kosong atau kolom 'RealAmount' tidak terbaca.";
     }
 
     if (lowText.startsWith('export') || lowText.startsWith('pdf')) {
@@ -167,31 +159,24 @@ const handleMessage = async (msg) => {
         return await sendDocument(chatId, "myfinance.db", "💾 Manual Backup");
     }
 
-    // 2. LOGIKA PENDING TRANSFER FEE
+    // 2. LOGIKA TRANSFER
     if (pendingAdmin[chatId] && !isNaN(text.replace(/k/gi, '000'))) {
         const fee = parseFloat(text.replace(/k/gi, '000'));
         const { txOut, txIn } = pendingAdmin[chatId];
-        
         addTx(txOut); addTx(txIn); 
         appendToSheet(txOut); appendToSheet(txIn);
-        
         if (fee > 0) {
             const txFee = { ...txOut, amount: -fee, category: 'Tagihan', note: `Admin Transfer: ${txOut.note}` };
             addTx(txFee); appendToSheet(txFee);
         }
-        
         delete pendingAdmin[chatId];
         return `✅ **Transfer Sukses**\n${txOut.account.toUpperCase()} ➔ ${txIn.account.toUpperCase()}\nBiaya Admin: ${fmt(fee)}`;
     }
 
-    // 3. PARSER TRANSAKSI
+    // 3. PARSER
     const result = parseInput(text, userCode);
-    
     if (result.type === 'error') {
-        const knownCmds = ['ss', 'tf', 'laporan'];
-        if (knownCmds.some(x => lowText.startsWith(x))) {
-             return `⚠️ **FORMAT SALAH**\nContoh: \`50rb makan bca\`\nAtau ketik \`menu\`.`;
-        }
+        if (['ss', 'tf', 'laporan'].some(x => lowText.startsWith(x))) return `⚠️ **FORMAT SALAH**\nContoh: \`50rb makan bca\``;
         return null;
     }
 
@@ -202,7 +187,7 @@ const handleMessage = async (msg) => {
 
     if (result.type === 'transfer') {
         pendingAdmin[chatId] = { txOut: result.txOut, txIn: result.txIn };
-        return `🔄 TRANSFER\n${result.txOut.account.toUpperCase()} (${result.txOut.user}) ➔ ${result.txIn.account.toUpperCase()} (${result.txIn.user})\nNominal: ${fmt(Math.abs(result.txOut.amount))}\n\n**Biaya Admin?** (Ketik 0 jika gratis)`;
+        return `🔄 TRANSFER\n${result.txOut.account.toUpperCase()} ➔ ${result.txIn.account.toUpperCase()}\nNominal: ${fmt(Math.abs(result.txOut.amount))}\n\n**Biaya Admin?** (Ketik 0 jika gratis)`;
     }
 
     if (result.type === 'tx') {
@@ -212,7 +197,7 @@ const handleMessage = async (msg) => {
   
   } catch (err) {
       console.error("Handler Error:", err);
-      return `❌ Terjadi kesalahan sistem: ${err.message}`;
+      return `❌ Sistem Error: ${err.message}`;
   }
 };
 
