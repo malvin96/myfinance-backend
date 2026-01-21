@@ -1,7 +1,10 @@
 import fetch from "node-fetch";
 import FormData from "form-data";
 import fs from "fs";
+import { pipeline } from 'stream';
+import { promisify } from 'util';
 
+const streamPipeline = promisify(pipeline);
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 
 export async function sendMessage(chatId, text) {
@@ -14,7 +17,6 @@ export async function sendMessage(chatId, text) {
   } catch (error) { console.error("Telegram SendMessage Error:", error); }
 }
 
-// [FITUR BARU] HAPUS PESAN LAMA
 export async function deleteMessage(chatId, messageId) {
   try {
     await fetch(`${TELEGRAM_API}/deleteMessage`, {
@@ -23,44 +25,52 @@ export async function deleteMessage(chatId, messageId) {
       body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
     });
   } catch (error) { 
-    // Error diabaikan jika pesan sudah hilang duluan
     console.error("Gagal hapus pesan (mungkin sudah terhapus):", error.message); 
   }
 }
 
-// UPDATE: Return Response agar Index.js bisa mencatat ID Pesan
 export async function sendDocument(chatId, filePath, caption = "", silent = false) {
   try {
     const form = new FormData();
     form.append('chat_id', chatId);
     form.append('caption', caption);
     form.append('parse_mode', 'Markdown');
-    // Fitur Silent Mode: True = Tanpa Notifikasi Suara
     if (silent) form.append('disable_notification', 'true'); 
     form.append('document', fs.createReadStream(filePath));
     
     const response = await fetch(`${TELEGRAM_API}/sendDocument`, { method: "POST", body: form });
-    return await response.json(); // Mengembalikan data pesan (termasuk message_id)
+    return await response.json(); 
   } catch (error) { 
     console.error("Telegram SendDocument Error:", error); 
     return null;
   }
 }
 
-export async function getFileLink(fileId) {
+// [FITUR] Helper untuk mendownload file dari Telegram
+export async function downloadFile(fileId, destPath) {
   try {
+    // 1. Dapatkan Path File dari API
     const response = await fetch(`${TELEGRAM_API}/getFile?file_id=${fileId}`);
     const data = await response.json();
-    if (data.ok) {
-      return `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${data.result.file_path}`;
-    }
-  } catch (error) { console.error("GetFileLink Error:", error); }
-  return null;
+    if (!data.ok) return false;
+
+    const fileUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${data.result.file_path}`;
+
+    // 2. Download Stream
+    const res = await fetch(fileUrl);
+    if (!res.ok) return false;
+
+    await streamPipeline(res.body, fs.createWriteStream(destPath));
+    return true;
+  } catch (error) {
+    console.error("Download File Error:", error);
+    return false;
+  }
 }
 
 export async function pollUpdates(handleMessage) {
   let offset = 0;
-  console.log("Bot MaYo v5.5 CleanSync Ready...");
+  console.log("Bot MaYo v11.1 Ready (DB Restore Active)...");
   while (true) {
     try {
       const response = await fetch(`${TELEGRAM_API}/getUpdates?offset=${offset}&timeout=30`);
@@ -74,6 +84,9 @@ export async function pollUpdates(handleMessage) {
           offset = update.update_id + 1;
         }
       }
-    } catch (e) { await new Promise(r => setTimeout(r, 5000)); }
+    } catch (error) {
+      console.error("Polling Error:", error.message);
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
   }
 }
