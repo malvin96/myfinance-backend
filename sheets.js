@@ -3,18 +3,35 @@ import { GoogleSpreadsheet } from 'google-spreadsheet';
 
 // Setup Auth
 const privateKey = process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined;
-const auth = new JWT({ email: process.env.GOOGLE_CLIENT_EMAIL, key: privateKey, scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
+const auth = new JWT({ 
+    email: process.env.GOOGLE_CLIENT_EMAIL, 
+    key: privateKey, 
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'] 
+});
+
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
 
-// Helper Formatting
-const fmt = (n) => "Rp " + Math.round(Math.abs(n)).toLocaleString("id-ID");
-const getMonthName = (date) => new Date(date).toLocaleString('id-ID', { month: 'long', timeZone: 'Asia/Jakarta' });
-const getYear = (date) => new Date(date).getFullYear();
+// --- HELPER FORMATTING (Sesuai CSV Anda) ---
+const getSheetDate = (dateInput) => {
+    // Output: YYYY-MM-DD HH:mm:ss (Sesuai format tabel Anda)
+    const d = dateInput ? new Date(dateInput.replace(" ", "T")) : new Date();
+    const pad = (n) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
+const getMonthName = (dateInput) => {
+    const d = dateInput ? new Date(dateInput.replace(" ", "T")) : new Date();
+    return d.toLocaleString('id-ID', { month: 'long', timeZone: 'Asia/Jakarta' });
+};
+
+const getYear = (dateInput) => {
+    const d = dateInput ? new Date(dateInput.replace(" ", "T")) : new Date();
+    return d.getFullYear();
+};
 
 // --- 1. QUEUE SYSTEM (Antrian Upload) ---
 const queue = [];
 let isProcessing = false;
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function processQueue() {
   if (isProcessing || queue.length === 0) return;
@@ -25,47 +42,31 @@ async function processQueue() {
       await doc.loadInfo();
       const sheet = doc.sheetsByIndex[0];
       
-      const now = new Date();
-      const timestamp = tx.timestamp || now.toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
-      const dateObj = tx.timestamp ? new Date(tx.timestamp) : now;
-      
-      // Logika Amount (RealAmount) vs Tampilan (Amount)
-      let realAmount = tx.amount;
-      if (tx.category !== "Pendapatan" && tx.category !== "Saldo Awal" && realAmount > 0) {
-        realAmount = -Math.abs(realAmount);
-      }
-      if (tx.category === "Pendapatan") {
-        realAmount = Math.abs(realAmount);
-      }
-      
-      const type = realAmount >= 0 ? 'Income' : 'Expense';
-      const userFull = tx.user === 'M' ? 'Malvin' : 'Yovita';
-
-      // ADD ROW (Format Kolom Anda)
-      await sheet.addRow({
-        'Timestamp': timestamp,
-        'User': userFull,
-        'Type': type,
+      // Persiapan Data Baris (Row)
+      const rowData = {
+        'Timestamp': getSheetDate(tx.timestamp),
+        'User': tx.user === 'M' ? 'Malvin' : (tx.user === 'Y' ? 'Yovita' : tx.user),
+        'Type': tx.amount >= 0 ? 'Income' : 'Expense',
         'Category': tx.category,
         'Note': tx.note,
         'Account': tx.account.toUpperCase(),
-        'Amount': fmt(realAmount),    // String "Rp ..."
-        'RealAmount': realAmount,     // Angka Murni
-        'Bulan': getMonthName(dateObj),
-        'Tahun': getYear(dateObj)
-      });
-      
-      console.log(`✅ Sheet Updated: ${tx.note}`);
-      await delay(1500); 
+        'Amount': Math.abs(tx.amount), // Angka Absolut (Positif)
+        'RealAmount': tx.amount,       // Angka Asli (+/-)
+        'Bulan': getMonthName(tx.timestamp), // Auto-fill Value
+        'Tahun': getYear(tx.timestamp)       // Auto-fill Value
+      };
 
+      await sheet.addRow(rowData);
+      console.log(`✅ Row added to Sheet: ${tx.note} | ${rowData.Timestamp}`);
     } catch (error) {
-      console.error("❌ Gagal update Sheet:", error.message);
+      console.error("❌ Error Add Row:", error.message);
     }
+    await new Promise(resolve => setTimeout(resolve, 1000)); // Delay aman
   }
   isProcessing = false;
 }
 
-export async function appendToSheet(tx) {
+export function appendToSheet(tx) {
   queue.push(tx);
   processQueue();
 }
@@ -73,82 +74,59 @@ export async function appendToSheet(tx) {
 // --- 2. SYNC PULL (Sheet -> Bot) ---
 export async function downloadFromSheet() {
   try {
-    console.log("☁️ Mengunduh data Sheet...");
     await doc.loadInfo();
     const sheet = doc.sheetsByIndex[0];
     const rows = await sheet.getRows();
     
-    console.log(`📊 Ditemukan ${rows.length} data.`);
-
-    const transactions = rows.map((row) => {
-      // Baca kolom spesifik
-      const accRaw = row.get('Account');
-      const realAmtRaw = row.get('RealAmount'); 
-      const userRaw = row.get('User');
-      
-      if (!accRaw || !realAmtRaw) return null;
-
-      let user = 'M';
-      if (userRaw && userRaw.toString().toLowerCase().includes('yovita')) user = 'Y';
-      
-      const amount = parseFloat(realAmtRaw.toString().replace(/[^0-9\.\-]/g, ''));
-
-      return {
-        timestamp: row.get('Timestamp'),
-        user: user,
-        account: accRaw.toString().toLowerCase(),
-        category: row.get('Category') || 'Lainnya',
-        note: row.get('Note') || '',
-        amount: amount
-      };
-    }).filter(item => item !== null && !isNaN(item.amount));
-
-    return transactions;
-
+    return rows.map(row => ({
+      timestamp: row.get('Timestamp'),
+      user: (row.get('User') === 'Malvin' || row.get('User') === 'M') ? 'M' : 'Y',
+      account: row.get('Account') ? row.get('Account').toLowerCase() : 'cash',
+      amount: parseFloat(row.get('RealAmount')), // Ambil value asli
+      category: row.get('Category'),
+      note: row.get('Note')
+    }));
   } catch (error) {
     console.error("❌ Error Download Sheet:", error.message);
     return [];
   }
 }
 
-// --- 3. SYNC PUSH (Bot -> Sheet) ---
+// --- 3. SYNC PUSH (Force Overwrite) ---
 export async function overwriteSheet(transactions) {
     try {
-        console.log("🔄 Force Push dimulai...");
+        console.log("🔄 Sync Push dimulai...");
         await doc.loadInfo();
         const sheet = doc.sheetsByIndex[0];
         
-        await sheet.clear(); // Hapus Total
+        await sheet.clear(); 
         
-        // SET HEADER WAJIB
+        // Header sesuai CSV Anda
         await sheet.setHeaderRow([
             'Timestamp', 'User', 'Type', 'Category', 'Note', 
             'Account', 'Amount', 'RealAmount', 'Bulan', 'Tahun'
         ]);
         
         const rows = transactions.map(tx => {
-            const dateObj = new Date(tx.timestamp);
-            const type = tx.amount >= 0 ? 'Income' : 'Expense';
-            
             return {
-                'Timestamp': tx.timestamp,
-                'User': tx.user === 'M' ? 'Malvin' : 'Yovita',
-                'Type': type,
+                'Timestamp': getSheetDate(tx.timestamp),
+                'User': tx.user === 'M' ? 'Malvin' : (tx.user === 'Y' ? 'Yovita' : tx.user),
+                'Type': tx.amount >= 0 ? 'Income' : 'Expense',
                 'Category': tx.category,
                 'Note': tx.note,
                 'Account': tx.account.toUpperCase(),
-                'Amount': fmt(tx.amount),
-                'RealAmount': tx.amount,
-                'Bulan': getMonthName(dateObj),
-                'Tahun': getYear(dateObj)
+                'Amount': Math.abs(tx.amount), // Absolut
+                'RealAmount': tx.amount,       // Signed
+                'Bulan': getMonthName(tx.timestamp),
+                'Tahun': getYear(tx.timestamp)
             };
         });
 
         await sheet.addRows(rows);
-        console.log(`✅ Sukses Push ${rows.length} data.`);
+        console.log(`✅ Sukses Push ${rows.length} data dengan Format Baru.`);
         return true;
     } catch (error) {
-        console.error("❌ Gagal Push:", error);
+        console.error("❌ Error Overwrite Sheet:", error.message);
         return false;
     }
 }
