@@ -11,31 +11,29 @@ const auth = new JWT({
 
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
 
-// --- HELPER FORMATTING (Safety First) ---
-const getSheetDate = (dateInput) => {
-    try {
-        const d = dateInput ? new Date(dateInput.replace(" ", "T")) : new Date();
-        if (isNaN(d.getTime())) return new Date().toISOString().slice(0, 19).replace('T', ' ');
-        const pad = (n) => n.toString().padStart(2, '0');
-        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    } catch {
-        return new Date().toISOString().slice(0, 19).replace('T', ' ');
-    }
+// --- HELPER FORMATTING (WITA / GMT+8) ---
+// Fungsi ini memastikan string tanggal yang dihasilkan mengikuti waktu Makassar (WITA)
+const getWITAString = (dateInput) => {
+    const d = dateInput ? new Date(dateInput) : new Date();
+    // Konversi ke Timezone Asia/Makassar
+    return d.toLocaleString('sv-SE', { timeZone: 'Asia/Makassar' }).replace(' ', ' '); 
+    // sv-SE formatnya YYYY-MM-DD HH:mm:ss, sangat cocok untuk Database & Sheet
 };
 
 const getMonthName = (dateInput) => {
     try {
-        const d = dateInput ? new Date(dateInput.replace(" ", "T")) : new Date();
+        const d = dateInput ? new Date(dateInput) : new Date();
         if (isNaN(d.getTime())) return "Check Date";
-        return d.toLocaleString('id-ID', { month: 'long', timeZone: 'Asia/Jakarta' });
+        return d.toLocaleString('id-ID', { month: 'long', timeZone: 'Asia/Makassar' });
     } catch { return "Error"; }
 };
 
 const getYear = (dateInput) => {
     try {
-        const d = dateInput ? new Date(dateInput.replace(" ", "T")) : new Date();
-        if (isNaN(d.getTime())) return new Date().getFullYear();
-        return d.getFullYear();
+        const d = dateInput ? new Date(dateInput) : new Date();
+        // Trik mendapatkan tahun di timezone spesifik
+        const parts = new Intl.DateTimeFormat('en-US', { year: 'numeric', timeZone: 'Asia/Makassar' }).formatToParts(d);
+        return parts.find(p => p.type === 'year').value;
     } catch { return new Date().getFullYear(); }
 };
 
@@ -52,21 +50,24 @@ async function processQueue() {
       await doc.loadInfo();
       const sheet = doc.sheetsByIndex[0];
       
-      // [LOGIKA BARU] Penentuan Type
+      // [LOGIKA] Penentuan Type
       let finalType = tx.amount >= 0 ? 'Income' : 'Expense';
       if (tx.category.toLowerCase() === 'transfer') finalType = 'Transfer';
 
+      // Pastikan Timestamp menggunakan WITA
+      const witaTimestamp = tx.timestamp ? tx.timestamp : getWITAString();
+
       const rowData = {
-        'Timestamp': getSheetDate(tx.timestamp),
+        'Timestamp': witaTimestamp,
         'User': tx.user === 'M' ? 'Malvin' : (tx.user === 'Y' ? 'Yovita' : tx.user),
-        'Type': finalType, // [UPDATE] Transfer, Income, atau Expense
+        'Type': finalType,
         'Category': tx.category,
         'Note': tx.note,
         'Account': tx.account.toUpperCase(),
         'Amount': Math.abs(tx.amount), 
         'RealAmount': tx.amount,       
-        'Bulan': getMonthName(tx.timestamp),
-        'Tahun': getYear(tx.timestamp)
+        'Bulan': getMonthName(witaTimestamp),
+        'Tahun': getYear(witaTimestamp)
       };
 
       await sheet.addRow(rowData);
@@ -80,6 +81,10 @@ async function processQueue() {
 }
 
 export function appendToSheet(tx) {
+  // Jika tx belum punya timestamp, buat timestamp sekarang (WITA)
+  if (!tx.timestamp) {
+      tx.timestamp = getWITAString();
+  }
   queue.push(tx);
   processQueue();
 }
@@ -110,7 +115,7 @@ export async function downloadFromSheet() {
       let cleanVal = String(val).replace(/[^0-9.-]/g, ''); 
       const realAmt = parseFloat(cleanVal);
 
-      const ts = raw['Timestamp'] || new Date().toISOString().replace('T', ' ').slice(0, 19);
+      const ts = raw['Timestamp'] || getWITAString();
 
       return {
         timestamp: ts,
