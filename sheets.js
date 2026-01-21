@@ -72,28 +72,50 @@ export function appendToSheet(tx) {
 // --- 2. SYNC PULL (Sheet adalah Master Data) ---
 export async function downloadFromSheet() {
   try {
+    console.log("📥 Memulai Download Sheet...");
     await doc.loadInfo();
     const sheet = doc.sheetsByIndex[0];
     const rows = await sheet.getRows();
     
-    return rows.map(row => {
-      // Mapping User agar kompatibel dengan Bot
-      let u = 'M';
-      const sheetUser = row.get('User');
-      if (sheetUser === 'Yovita' || sheetUser === 'Y') u = 'Y';
+    if (rows.length === 0) {
+        console.log("⚠️ Sheet kosong, tidak ada data yang ditarik.");
+        return [];
+    }
+
+    const cleanedData = rows.map(row => {
+      // Konversi row ke object aman (handle berbagai versi library)
+      const raw = row.toObject ? row.toObject() : row; 
       
-      // Mengambil 'RealAmount' karena itu yang mengandung nilai +/-
-      const realAmt = parseFloat(row.get('RealAmount')); 
+      // Mapping User
+      let u = 'M';
+      const sheetUser = raw['User'];
+      if (sheetUser && (sheetUser.includes('Yovita') || sheetUser === 'Y')) u = 'Y';
+      
+      // Ambil RealAmount (Pastikan angka)
+      // Coba akses via 'RealAmount' atau 'Amount' jika null
+      let val = raw['RealAmount'];
+      if (val === undefined || val === null || val === '') val = raw['Amount']; 
+
+      // Bersihkan string angka (misal ada "Rp" atau koma)
+      let cleanVal = String(val).replace(/[^0-9.-]/g, ''); 
+      const realAmt = parseFloat(cleanVal);
+
+      // Handle Timestamp (Default NOW jika kosong)
+      const ts = raw['Timestamp'] || new Date().toISOString().replace('T', ' ').slice(0, 19);
 
       return {
-        timestamp: row.get('Timestamp'),
+        timestamp: ts,
         user: u,
-        account: row.get('Account') ? row.get('Account').toLowerCase() : 'cash',
+        account: raw['Account'] ? raw['Account'].toLowerCase() : 'cash',
         amount: isNaN(realAmt) ? 0 : realAmt,
-        category: row.get('Category'),
-        note: row.get('Note')
+        category: raw['Category'] || 'Lainnya',
+        note: raw['Note'] || '-'
       };
     });
+
+    console.log(`✅ Berhasil download ${cleanedData.length} baris dari Sheet.`);
+    return cleanedData;
+
   } catch (error) {
     console.error("❌ Error Download Sheet:", error.message);
     return [];
