@@ -11,21 +11,34 @@ const auth = new JWT({
 
 const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
 
-// --- HELPER FORMATTING ---
+// --- HELPER FORMATTING (Safety First) ---
 const getSheetDate = (dateInput) => {
-    const d = dateInput ? new Date(dateInput.replace(" ", "T")) : new Date();
-    const pad = (n) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    // Memastikan output selalu YYYY-MM-DD HH:mm:ss untuk SQL/Sheet
+    try {
+        const d = dateInput ? new Date(dateInput.replace(" ", "T")) : new Date();
+        if (isNaN(d.getTime())) return new Date().toISOString().slice(0, 19).replace('T', ' ');
+        
+        const pad = (n) => n.toString().padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    } catch {
+        return new Date().toISOString().slice(0, 19).replace('T', ' ');
+    }
 };
 
 const getMonthName = (dateInput) => {
-    const d = dateInput ? new Date(dateInput.replace(" ", "T")) : new Date();
-    return d.toLocaleString('id-ID', { month: 'long', timeZone: 'Asia/Jakarta' });
+    try {
+        const d = dateInput ? new Date(dateInput.replace(" ", "T")) : new Date();
+        if (isNaN(d.getTime())) return "Check Date";
+        return d.toLocaleString('id-ID', { month: 'long', timeZone: 'Asia/Jakarta' });
+    } catch { return "Error"; }
 };
 
 const getYear = (dateInput) => {
-    const d = dateInput ? new Date(dateInput.replace(" ", "T")) : new Date();
-    return d.getFullYear();
+    try {
+        const d = dateInput ? new Date(dateInput.replace(" ", "T")) : new Date();
+        if (isNaN(d.getTime())) return new Date().getFullYear();
+        return d.getFullYear();
+    } catch { return new Date().getFullYear(); }
 };
 
 // --- 1. QUEUE SYSTEM (Antrian Upload ke Sheet) ---
@@ -44,6 +57,7 @@ async function processQueue() {
       const rowData = {
         'Timestamp': getSheetDate(tx.timestamp),
         'User': tx.user === 'M' ? 'Malvin' : (tx.user === 'Y' ? 'Yovita' : tx.user),
+        // [FIX] Validasi Type: Jika >=0 Income, selain itu Expense. Otomatis & Akurat.
         'Type': tx.amount >= 0 ? 'Income' : 'Expense',
         'Category': tx.category,
         'Note': tx.note,
@@ -55,7 +69,7 @@ async function processQueue() {
       };
 
       await sheet.addRow(rowData);
-      console.log(`✅ Row added to Sheet: ${tx.note}`);
+      console.log(`✅ Row added to Sheet: ${tx.note} [${rowData.Type}]`);
     } catch (error) {
       console.error("❌ Error Add Row:", error.message);
     }
@@ -83,7 +97,7 @@ export async function downloadFromSheet() {
     }
 
     const cleanedData = rows.map(row => {
-      // Konversi row ke object aman (handle berbagai versi library)
+      // Konversi row ke object aman
       const raw = row.toObject ? row.toObject() : row; 
       
       // Mapping User
@@ -92,15 +106,12 @@ export async function downloadFromSheet() {
       if (sheetUser && (sheetUser.includes('Yovita') || sheetUser === 'Y')) u = 'Y';
       
       // Ambil RealAmount (Pastikan angka)
-      // Coba akses via 'RealAmount' atau 'Amount' jika null
       let val = raw['RealAmount'];
       if (val === undefined || val === null || val === '') val = raw['Amount']; 
 
-      // Bersihkan string angka (misal ada "Rp" atau koma)
       let cleanVal = String(val).replace(/[^0-9.-]/g, ''); 
       const realAmt = parseFloat(cleanVal);
 
-      // Handle Timestamp (Default NOW jika kosong)
       const ts = raw['Timestamp'] || new Date().toISOString().replace('T', ' ').slice(0, 19);
 
       return {
