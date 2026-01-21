@@ -1,14 +1,14 @@
 import express from "express";
 import fs from 'fs';
 import cron from 'node-cron';
-import { pollUpdates, sendMessage, sendDocument, deleteMessage } from "./telegram.js";
+import { pollUpdates, sendMessage, sendDocument, deleteMessage, downloadFile } from "./telegram.js";
 import { parseInput } from "./parser.js";
-import { initDB, addTx, getRekapLengkap, deleteLastTx, rebuildDatabase, getLatestTransactions, getAllTransactions, getTotalCCHariIni } from "./db.js";
+import { initDB, addTx, getRekapLengkap, deleteLastTx, rebuildDatabase, getLatestTransactions, getAllTransactions, getTotalCCHariIni, importFromDBFile } from "./db.js";
 import { createPDF } from "./export.js";
-import { appendToSheet, downloadFromSheet } from "./sheets.js";
+import { appendToSheet, downloadFromSheet, overwriteSheet } from "./sheets.js";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo Locked v11.0 (Direct Transfer)"));
+app.get("/", (req, res) => res.send("Bot MaYo Locked v11.1 (DB Restore Active)"));
 app.listen(process.env.PORT || 3000);
 
 initDB();
@@ -45,6 +45,29 @@ const handleMessage = async (msg) => {
   try {
     const chatId = msg.chat.id;
     const fromId = msg.from.id;
+    
+    // [LOGIKA BARU] Deteksi File .db untuk Restore
+    if (msg.document && msg.document.file_name && msg.document.file_name.endsWith('.db')) {
+        await sendMessage(chatId, "📥 **Menerima Database...**\nMohon tunggu, sedang memproses file.");
+        const tempPath = "temp_restore.db";
+        
+        // 1. Download File
+        const success = await downloadFile(msg.document.file_id, tempPath);
+        if (!success) return "❌ Gagal download file. Coba lagi.";
+
+        // 2. Import Data (Hot Restore)
+        const count = importFromDBFile(tempPath);
+        
+        // 3. Cleanup
+        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+
+        if (count >= 0) {
+            return `✅ **RESTORE SUKSES**\nDatabase berhasil diperbarui dari file.\n📊 Total Data: ${count} transaksi.`;
+        } else {
+            return "❌ File rusak atau format database tidak valid.";
+        }
+    }
+
     const text = msg.text ? msg.text.trim() : "";
     const lowText = text.toLowerCase();
 
@@ -65,7 +88,7 @@ const handleMessage = async (msg) => {
                `↩️ koreksi (Undo)\n` +
                `📊 rekap | history | pdf\n` +
                `☁️ sync (Tarik Data Sheet)\n` +
-               `💾 backup (Manual DB)`;
+               `💾 Kirim file .db (Restore Data)`;
     }
 
     if (lowText.includes('rekap') || lowText.includes('saldo') || lowText === 'cek') {
@@ -168,16 +191,10 @@ const handleMessage = async (msg) => {
         return `✅ SALDO DIUPDATE\n👤 ${userLabel} | 🏦 ${result.tx.account.toUpperCase()}\n💰 ${fmt(result.tx.amount)}`;
     }
 
-    // [FITUR UPDATE] TRANSFER LANGSUNG (TANPA TANYA ADMIN FEE)
     if (result.type === 'transfer') {
         // Eksekusi Langsung
         addTx(result.txOut); appendToSheet(result.txOut);
         addTx(result.txIn);  appendToSheet(result.txIn);
-
-        // Deteksi apakah transfer ke diri sendiri atau partner
-        const targetLabel = result.txIn.user !== result.txOut.user 
-            ? `Partner (${result.txIn.user === 'M' ? 'Malvin' : 'Yovita'})` 
-            : `Akun Sendiri`;
 
         return `🔄 **TRANSFER BERHASIL**\n` +
                `${result.txOut.account.toUpperCase()} (${result.txOut.user}) ➔ ${result.txIn.account.toUpperCase()} (${result.txIn.user})\n` +
