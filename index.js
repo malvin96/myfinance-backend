@@ -5,10 +5,10 @@ import { pollUpdates, sendMessage, sendDocument, deleteMessage, downloadFile } f
 import { parseInput } from "./parser.js";
 import { initDB, addTx, getRekapLengkap, deleteLastTx, rebuildDatabase, getLatestTransactions, getAllTransactions, getTotalCCHariIni, importFromDBFile } from "./db.js";
 import { createPDF } from "./export.js";
-import { appendToSheet, downloadFromSheet } from "./sheets.js"; // [FIX] overwriteSheet sudah dihapus
+import { appendToSheet, downloadFromSheet } from "./sheets.js"; 
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo Locked v11.3 (UI User Label)"));
+app.get("/", (req, res) => res.send("Bot MaYo Locked v11.4 (WITA Timezone)"));
 app.listen(process.env.PORT || 3000);
 
 initDB();
@@ -25,7 +25,9 @@ cron.schedule('58 */14 * * * *', async () => {
     const ownerId = process.env.TELEGRAM_USER_ID;
     if (ownerId) {
         if (lastBackupMsgId) await deleteMessage(ownerId, lastBackupMsgId);
-        const caption = `💾 **AUTO BACKUP**\n📅 ${new Date().toLocaleString('id-ID')}\n_Sheet adalah Master Data._`;
+        // [UPDATE WITA] Tanggal Backup
+        const timeString = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Makassar' });
+        const caption = `💾 **AUTO BACKUP**\n📅 ${timeString} WITA\n_Sheet adalah Master Data._`;
         const result = await sendDocument(ownerId, "myfinance.db", caption, true); 
         if (result && result.ok) lastBackupMsgId = result.result.message_id;
     }
@@ -36,7 +38,7 @@ cron.schedule('0 21 * * *', async () => {
     const ownerId = process.env.TELEGRAM_USER_ID;
     const ccData = getTotalCCHariIni();
     if (ccData && ccData.total < 0) { 
-        const msg = `🔔 TAGIHAN CC HARI INI\n${line}\nTotal: ${fmt(Math.abs(ccData.total))}\nSegera lunasi ya! 💳`;
+        const msg = `🔔 TAGIHAN CC HARI INI (WITA)\n${line}\nTotal: ${fmt(Math.abs(ccData.total))}\nSegera lunasi ya! 💳`;
         await sendMessage(ownerId, msg);
     }
 });
@@ -129,6 +131,7 @@ const handleMessage = async (msg) => {
         
         data.forEach(r => {
             let dateStr = "??/??";
+            // Asumsi format timestamp DB: YYYY-MM-DD HH:mm:ss
             if (r.timestamp && r.timestamp.length >= 10) {
                 const mo = r.timestamp.substring(5, 7); 
                 const da = r.timestamp.substring(8, 10); 
@@ -176,7 +179,8 @@ const handleMessage = async (msg) => {
     }
 
     if (lowText === 'backup' || lowText === 'db') {
-        return await sendDocument(chatId, "myfinance.db", "💾 Manual Backup");
+        const timeString = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Makassar' });
+        return await sendDocument(chatId, "myfinance.db", `💾 Manual Backup\n🕒 ${timeString} WITA`);
     }
 
     // 2. PARSER
@@ -204,7 +208,6 @@ const handleMessage = async (msg) => {
 
     if (result.type === 'tx') {
         addTx(result.tx); appendToSheet(result.tx);
-        // [UPDATE] Format Output: Menambahkan Info User di sebelah Kategori
         return `✅ ${result.tx.category.toUpperCase()} | ${userLabel}\n${result.tx.note} : ${fmt(Math.abs(result.tx.amount))}\n(${result.tx.account.toUpperCase()})`;
     }
   
