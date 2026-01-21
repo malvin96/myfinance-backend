@@ -3,12 +3,12 @@ import fs from 'fs';
 import cron from 'node-cron';
 import { pollUpdates, sendMessage, sendDocument, deleteMessage } from "./telegram.js";
 import { parseInput } from "./parser.js";
-import { initDB, addTx, getRekapLengkap, deleteLastTx, rebuildDatabase, getLatestTransactions, getAllTransactions } from "./db.js";
+import { initDB, addTx, getRekapLengkap, deleteLastTx, rebuildDatabase, getLatestTransactions, getAllTransactions, getTotalCCHariIni } from "./db.js";
 import { createPDF } from "./export.js";
 import { appendToSheet, downloadFromSheet, overwriteSheet } from "./sheets.js";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo v8.2 Active"));
+app.get("/", (req, res) => res.send("Bot MaYo Locked v9.1 Active (Format Fixed)"));
 app.listen(process.env.PORT || 3000);
 
 initDB();
@@ -18,39 +18,31 @@ const line = "━━━━━━━━━━━━━━━━━━━";
 const pendingAdmin = {};    
 const LIQUID_LIST = ['bca', 'cash', 'gopay', 'ovo', 'shopeepay'];
 const ASSET_LIST = ['bibit', 'mirrae', 'bca sekuritas'];
-let lastBackupMsgId = null; // [BARU] Menyimpan ID pesan backup terakhir
+let lastBackupMsgId = null; 
 
-// --- [FITUR KUNCI] AUTO BACKUP CRON (14 Menit 58 Detik) ---
-// Menjalankan sync push otomatis & backup DB setiap interval 14 menit 58 detik
+// --- CRON JOBS ---
 cron.schedule('58 */14 * * * *', async () => {
   try {
-    // 1. Push ke Google Sheet
     const allData = getAllTransactions();
-    if (allData.length > 0) {
-      const success = await overwriteSheet(allData);
-      if (success) console.log(`[AUTO BACKUP] Success push ${allData.length} rows at ${new Date().toLocaleTimeString()}`);
-    }
+    if (allData.length > 0) await overwriteSheet(allData); // Auto Sync format baru
 
-    // 2. [BARU] Kirim Backup DB ke Telegram Owner
     const ownerId = process.env.TELEGRAM_USER_ID;
     if (ownerId) {
-        // Hapus pesan backup sebelumnya jika ada
-        if (lastBackupMsgId) {
-            await deleteMessage(ownerId, lastBackupMsgId);
-        }
-        // Kirim file DB baru
-        const caption = `💾 **AUTO BACKUP DATABASE**\n📅 ${new Date().toLocaleString('id-ID')}\n_Backup otomatis setiap ±15 menit._`;
-        const result = await sendDocument(ownerId, "myfinance.db", caption, true); // Silent = true
-        
-        // Simpan ID pesan untuk dihapus nanti
-        if (result && result.ok && result.result) {
-            lastBackupMsgId = result.result.message_id;
-        }
+        if (lastBackupMsgId) await deleteMessage(ownerId, lastBackupMsgId);
+        const caption = `🔄 Auto-Backup (${new Date().toLocaleString('id-ID')})`;
+        const result = await sendDocument(ownerId, "myfinance.db", caption, true); 
+        if (result && result.ok) lastBackupMsgId = result.result.message_id;
     }
+  } catch (err) { console.error("[AUTO BACKUP ERROR]", err); }
+});
 
-  } catch (err) {
-    console.error("[AUTO BACKUP ERROR]", err);
-  }
+cron.schedule('0 21 * * *', async () => {
+    const ownerId = process.env.TELEGRAM_USER_ID;
+    const ccData = getTotalCCHariIni();
+    if (ccData && ccData.total < 0) { 
+        const msg = `🔔 TAGIHAN CC HARI INI\n${line}\nTotal: ${fmt(Math.abs(ccData.total))}\nSegera lunasi ya! 💳`;
+        await sendMessage(ownerId, msg);
+    }
 });
 
 const getSisaSaldo = (user, account) => {
@@ -60,141 +52,144 @@ const getSisaSaldo = (user, account) => {
 };
 
 const handleMessage = async (msg) => {
-  const chatId = msg.chat.id;
-  const fromId = msg.from.id;
-  const text = msg.text ? msg.text.trim() : "";
-  const lowText = text.toLowerCase();
+  try {
+    const chatId = msg.chat.id;
+    const fromId = msg.from.id;
+    const text = msg.text ? msg.text.trim() : "";
+    const lowText = text.toLowerCase();
 
-  const isMalvin = fromId === parseInt(process.env.TELEGRAM_USER_ID);
-  const isYovita = fromId === parseInt(process.env.USER_ID_PARTNER);
-  const isGroup = chatId === -5047317862;
-
-  if (!isMalvin && !isYovita && !isGroup) return;
-  const userCode = isMalvin ? 'M' : 'Y';
-  const userLabel = isMalvin ? "MALVIN" : "YOVITA";
-
-  // 1. PERINTAH SISTEM
-  if (lowText === 'menu' || lowText === 'help' || lowText === '/start') {
-    return `🤖 **SISTEM KEUANGAN MAYO**\n${line}\n` +
-           `💡 *PANDUAN CEPAT*\n` +
-           `• Ketik langsung: \`makan 50k\`\n` +
-           `  _(Bot otomatis deteksi kategori)_\n\n` +
-           `💰 *KEUANGAN*\n` +
-           `• \`Saldo\` : Cek posisi keuangan\n` +
-           `• \`History\` : Lihat transaksi terakhir\n` +
-           `• \`History (20)\` : Lihat 20 data, dst\n` +
-           `• \`Laporan\` : Download PDF Lengkap\n\n` +
-           `🛠 *ALAT BANTU*\n` +
-           `• \`ss [akun] [nominal]\` : Set Saldo\n` +
-           `• \`tf [akun] ke [tujuan] [nom]\` : Transfer\n` +
-           `• \`Koreksi\` : Hapus input terakhir\n` +
-           `• \`Sync pull\` : Ambil data Sheet\n` +
-           `• \`Sync push\` : Backup paksa ke Sheet`;
-  }
-
-  if (lowText === 'saldo' || lowText === 'cek saldo') {
-    const rekap = getRekapLengkap();
-    const buildUI = (code, label) => {
-      const rows = rekap.rows.filter(r => r.user === code);
-      if (rows.length === 0) return `Belum ada saldo untuk ${label}\n`;
-      let s = `💰 **POSISI SALDO (${label})**\n${line}\n*--- LIQUID ---*\n`;
-      rows.filter(r => LIQUID_LIST.includes(r.account.toLowerCase())).forEach(r => s += `🔹 ${r.account.toUpperCase().padEnd(9)}: ${fmt(r.balance)}\n`);
-      const assets = rows.filter(r => ASSET_LIST.includes(r.account.toLowerCase()));
-      if (assets.length > 0) s += `\n*--- ASET ---*\n`, assets.forEach(r => s += `🔸 ${r.account.toUpperCase().padEnd(9)}: ${fmt(r.balance)}\n`);
-      const total = rows.filter(r => r.account !== 'cc').reduce((a, b) => a + b.balance, 0);
-      return s + `${line}\n*Total Kekayaan: ${fmt(total)}*\n\n`;
-    };
-    return buildUI('M', 'MALVIN') + buildUI('Y', 'YOVITA');
-  }
-
-  if (lowText.startsWith('history')) {
-    // [FIX] Sanitasi input agar format (10) bisa terbaca
-    const numOnly = lowText.replace(/[^0-9]/g, ''); 
-    const limit = parseInt(numOnly) || 10;
+    const isMalvin = fromId === parseInt(process.env.TELEGRAM_USER_ID || 5023700044);
+    const isYovita = fromId === parseInt(process.env.USER_ID_PARTNER || 8469259152);
     
-    const data = getLatestTransactions(limit);
-    let res = `📜 **HISTORY TRANSAKSI (${limit} Data)**\n${line}\n`;
+    if (!isMalvin && !isYovita) return;
     
-    data.forEach(r => {
-      // [FIX] Replace spasi dengan 'T' agar valid ISO format di JS
-      let dateStr = "Invalid Date";
-      try {
-          const cleanTs = r.timestamp ? r.timestamp.replace(" ", "T") : "";
-          dateStr = new Date(cleanTs).toLocaleDateString('id-ID', {day:'2-digit', month:'2-digit'});
-      } catch (e) { dateStr = "??/??"; }
+    const userCode = isMalvin ? 'M' : 'Y';
+    const userLabel = isMalvin ? "MALVIN" : "YOVITA";
 
-      res += `${dateStr} [${r.user}] ${r.account.toUpperCase()} | ${fmt(r.amount)}\n   └ ${r.note}\n`;
-    });
-    return res + `${line}\n*Menampilkan ${data.length} data terakhir.*`;
-  }
-
-  if (lowText === 'sync pull') {
-    await sendMessage(chatId, "☁️ Sedang mengunduh data dari Google Sheet...");
-    const data = await downloadFromSheet();
-    if (data.length > 0) {
-        const count = rebuildDatabase(data);
-        return `✅ Berhasil Pull ${count} data ke database lokal.`;
+    // 1. SYSTEM COMMANDS
+    if (lowText === 'menu' || lowText === 'help' || lowText === '/start') {
+        return `🤖 MENU PERINTAH\n${line}\n` +
+               `📝 50rb makan bca (Catat)\n` +
+               `🔧 ss [akun] [jml] (Set Saldo)\n` +
+               `🔄 tf [jml] [dari] [ke] (Transfer)\n` +
+               `↩️ koreksi (Undo)\n` +
+               `📊 rekap | history | pdf\n` +
+               `💾 backup (Manual DB)\n` +
+               `☁️ sync push (Update Sheet)`;
     }
-    return "❌ Gagal mengunduh data atau Sheet kosong.";
-  }
 
-  if (lowText === 'sync push') {
-    const allData = getAllTransactions();
-    await overwriteSheet(allData);
-    return `✅ Berhasil Push ${allData.length} data ke Google Sheets secara manual.`;
-  }
+    if (lowText.includes('rekap') || lowText.includes('saldo') || lowText === 'cek') {
+        const rekap = getRekapLengkap();
+        const buildUI = (code, label) => {
+            const rows = rekap.rows.filter(r => r.user === code);
+            let s = `\n${code === 'M' ? '🧔' : '👩'} ${label}\n💧 Liquid:\n`;
+            
+            const liquid = rows.filter(r => LIQUID_LIST.includes(r.account.toLowerCase()));
+            liquid.forEach(r => s += `${r.account.toUpperCase()}: ${fmt(r.balance)}\n`);
+            const totLiq = liquid.reduce((a,b)=>a+b.balance,0);
+            s += `\nTotal ${code} Liquid : ${fmt(totLiq)}\n`;
 
-  if (lowText === 'laporan') {
-    await sendMessage(chatId, "📄 Sedang membuat laporan PDF...");
-    const filePath = await createPDF(getAllTransactions(), "LAPORAN KEUANGAN LENGKAP");
-    await sendDocument(chatId, filePath, "Rekap saldo & history lengkap.");
-    return null;
-  }
-
-  if (lowText === 'koreksi' || lowText === 'undo') {
-    const last = deleteLastTx(userCode);
-    if (last) return `↩️ **UNDO BERHASIL**\nUser: ${userLabel}\nAkun: ${last.account.toUpperCase()}\nDihapus: ${last.note}\nSisa Saldo: ${fmt(getSisaSaldo(userCode, last.account))}`;
-    return "❌ Tidak ada data transaksi Anda yang bisa dihapus.";
-  }
-
-  // 2. LOGIKA PENDING FEE TRANSFER
-  if (pendingAdmin[chatId] && !isNaN(text.replace(/k/gi, '000'))) {
-    const { txOut, txIn } = pendingAdmin[chatId];
-    const fee = parseFloat(text.replace(/k/gi, '000'));
-    addTx(txOut); addTx(txIn); 
-    appendToSheet(txOut); appendToSheet(txIn);
-    if (fee > 0) {
-      const txFee = { ...txOut, amount: -fee, category: 'Tagihan', note: `Admin Transfer: ${txOut.note}` };
-      addTx(txFee); appendToSheet(txFee);
+            const assets = rows.filter(r => ASSET_LIST.includes(r.account.toLowerCase()));
+            if (assets.length > 0) {
+                s += `\n💼 Aset:\n`;
+                assets.forEach(r => s += `${r.account.toUpperCase()}: ${fmt(r.balance)}\n`);
+                const totAst = assets.reduce((a,b)=>a+b.balance,0);
+                s += `\nTotal ${code} Asset : ${fmt(totAst)}\n`;
+            }
+            return s;
+        };
+        
+        let res = `📊 REKAP KEUANGAN\n${line}\n`;
+        res += buildUI('M', 'MALVIN');
+        res += buildUI('Y', 'YOVITA');
+        res += `\n${line}\n🌍 NET WORTH: ${fmt(rekap.totalWealth)}\n${line}`;
+        return res;
     }
-    const sisa = getSisaSaldo(userCode, txOut.account);
-    delete pendingAdmin[chatId];
-    return `✅ **Transfer Berhasil**\nUser: ${userLabel}\nAkun: ${txOut.account.toUpperCase()}\nSisa Saldo: ${fmt(sisa)}`;
-  }
 
-  // 3. PARSER TRANSAKSI (GREEDY)
-  const result = parseInput(text, userCode);
+    if (lowText.startsWith('history')) {
+        const numOnly = lowText.replace(/[^0-9]/g, ''); 
+        const limit = parseInt(numOnly) || 10;
+        const data = getLatestTransactions(limit);
+        
+        let res = `🗓️ ${data.length} TRANSAKSI TERAKHIR\n${line}\n`;
+        data.forEach(r => {
+            const date = new Date(r.timestamp.replace(" ", "T")).getDate();
+            const icon = r.amount >= 0 ? '📈' : '📉';
+            let noteTrunc = r.note.length > 12 ? r.note.substring(0,12)+".." : r.note;
+            res += `${date} ${icon} ${noteTrunc} : ${fmt(Math.abs(r.amount))}\n`;
+        });
+        return res;
+    }
+
+    if (lowText === 'sync push') {
+        const allData = getAllTransactions();
+        await overwriteSheet(allData);
+        return `✅ Berhasil Update Format Sheet (${allData.length} data).`;
+    }
+
+    if (lowText.startsWith('export') || lowText.startsWith('pdf')) {
+        await sendMessage(chatId, "📄 Sedang membuat laporan...");
+        const filePath = await createPDF(getAllTransactions(), "LAPORAN KEUANGAN");
+        await sendDocument(chatId, filePath, "📄 Laporan Bulan Ini");
+        return null;
+    }
+
+    if (lowText === 'koreksi' || lowText === 'undo' || lowText === 'batal') {
+        const last = deleteLastTx(userCode);
+        if (last) return `↩️ UNDO SUKSES\nDihapus: ${last.note} (${fmt(Math.abs(last.amount))})`;
+        return "❌ Tidak ada data transaksi Anda.";
+    }
+
+    if (lowText === 'backup' || lowText === 'db') {
+        return await sendDocument(chatId, "myfinance.db", "💾 Manual Backup");
+    }
+
+    // 2. LOGIKA PENDING TRANSFER FEE
+    if (pendingAdmin[chatId] && !isNaN(text.replace(/k/gi, '000'))) {
+        const fee = parseFloat(text.replace(/k/gi, '000'));
+        const { txOut, txIn } = pendingAdmin[chatId];
+        
+        addTx(txOut); addTx(txIn); 
+        appendToSheet(txOut); appendToSheet(txIn);
+        
+        if (fee > 0) {
+            const txFee = { ...txOut, amount: -fee, category: 'Tagihan', note: `Admin Transfer: ${txOut.note}` };
+            addTx(txFee); appendToSheet(txFee);
+        }
+        
+        delete pendingAdmin[chatId];
+        return `✅ **Transfer Sukses**\n${txOut.account.toUpperCase()} ➔ ${txIn.account.toUpperCase()}\nBiaya Admin: ${fmt(fee)}`;
+    }
+
+    // 3. PARSER TRANSAKSI
+    const result = parseInput(text, userCode);
+    
+    if (result.type === 'error') {
+        const knownCmds = ['ss', 'tf', 'sync', 'laporan'];
+        if (knownCmds.some(x => lowText.startsWith(x))) {
+             return `⚠️ **FORMAT SALAH**\nContoh: \`50rb makan bca\`\nAtau ketik \`menu\`.`;
+        }
+        return null;
+    }
+
+    if (result.type === 'adjustment') {
+        addTx(result.tx); appendToSheet(result.tx);
+        return `✅ SALDO DIUPDATE\n👤 ${userLabel} | 🏦 ${result.tx.account.toUpperCase()}\n💰 ${fmt(result.tx.amount)}`;
+    }
+
+    if (result.type === 'transfer') {
+        pendingAdmin[chatId] = { txOut: result.txOut, txIn: result.txIn };
+        return `🔄 TRANSFER\n${result.txOut.account.toUpperCase()} (${result.txOut.user}) ➔ ${result.txIn.account.toUpperCase()} (${result.txIn.user})\nNominal: ${fmt(Math.abs(result.txOut.amount))}\n\n**Biaya Admin?** (Ketik 0 jika gratis)`;
+    }
+
+    if (result.type === 'tx') {
+        addTx(result.tx); appendToSheet(result.tx);
+        return `✅ ${result.tx.category.toUpperCase()}\n${result.tx.note} : ${fmt(Math.abs(result.tx.amount))}\n(${result.tx.account.toUpperCase()})`;
+    }
   
-  if (result.type === 'error') {
-    const systemCmds = ['saldo', 'menu', 'history', 'laporan', 'sync', 'koreksi', 'undo', 'ss', 'tf'];
-    if (systemCmds.some(c => lowText.includes(c))) return `❓ Perintah salah. Ketik \`Menu\` untuk bantuan.`;
-    return null; 
-  }
-
-  if (result.type === 'adjustment') {
-    addTx(result.tx); appendToSheet(result.tx);
-    return `🛠 **ADJUSTMENT BERHASIL**\nUser: ${userLabel}\nAkun: ${result.tx.account.toUpperCase()}\nSaldo diset ke: ${fmt(result.tx.amount)}`;
-  }
-
-  if (result.type === 'transfer') {
-    pendingAdmin[chatId] = { txOut: result.txOut, txIn: result.txIn };
-    const target = result.txIn.user !== result.txOut.user ? `Partner (${result.txIn.user === 'Y' ? 'Yovita' : 'Malvin'})` : result.txIn.account.toUpperCase();
-    return `🔄 **Transfer (${userLabel})**\nAkun: ${result.txOut.account.toUpperCase()} ➡️ ${target}\nNominal: ${fmt(Math.abs(result.txOut.amount))}\n\n**Biaya Admin?** (Ketik 0 jika gratis)`;
-  }
-
-  if (result.type === 'tx') {
-    addTx(result.tx); appendToSheet(result.tx);
-    return `✅ **Berhasil: ${result.tx.category}**\nUser: ${userLabel}\nAkun: ${result.tx.account.toUpperCase()}\nNominal: ${fmt(Math.abs(result.tx.amount))}\nSisa Saldo: ${fmt(getSisaSaldo(userCode, result.tx.account))}`;
+  } catch (err) {
+      console.error("Handler Error:", err);
+      return `❌ Terjadi kesalahan sistem: ${err.message}`;
   }
 };
 
