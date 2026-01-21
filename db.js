@@ -13,8 +13,12 @@ export function initDB() {
 }
 
 export function addTx(p) {
-  const stmt = db.prepare("INSERT INTO transactions (user, account, amount, category, note) VALUES (?, ?, ?, ?, ?)");
-  return stmt.run(p.user, p.account, p.amount, p.category, p.note);
+  // Timestamp sebaiknya dipass dari luar (parser/index) yang sudah WITA
+  // Jika tidak ada, DB akan pakai localtime server (biasanya UTC), tapi sheet.js sudah handle WITA.
+  const stmt = db.prepare("INSERT INTO transactions (user, account, amount, category, note, timestamp) VALUES (?, ?, ?, ?, ?, ?)");
+  // Jika timestamp kosong, kita inject WITA string saat ini
+  const ts = p.timestamp || new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Makassar' }).replace(' ', ' ');
+  return stmt.run(p.user, p.account, p.amount, p.category, p.note, ts);
 }
 
 // [FITUR] Rebuild Database (Dipakai Sync & Restore DB)
@@ -47,15 +51,12 @@ export function rebuildDatabase(txs) {
 export function importFromDBFile(tempDbPath) {
     try {
         const tempDb = new Database(tempDbPath, { readonly: true });
-        // Ambil semua data dari DB yang diupload
         const rows = tempDb.prepare("SELECT * FROM transactions").all();
-        tempDb.close(); // Tutup koneksi DB temp
-
-        // Masukkan ke DB Utama menggunakan fungsi yang sudah ada
+        tempDb.close(); 
         return rebuildDatabase(rows);
     } catch (error) {
         console.error("❌ Error Import DB:", error);
-        return -1; // Kode error
+        return -1; 
     }
 }
 
@@ -83,6 +84,11 @@ export function getRekapLengkap() {
   return { rows, totalWealth: totalWealth.total || 0 };
 }
 
+// [UPDATE WITA] Menghitung tagihan CC hari ini berdasarkan zona WITA
 export function getTotalCCHariIni() {
-  return db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account = 'cc' AND amount < 0 AND date(timestamp) = date('now', 'localtime')").get() || { total: 0 };
+  // Ambil tanggal hari ini format YYYY-MM-DD sesuai WITA
+  const todayWITA = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Makassar' });
+  
+  // Query menggunakan substr timestamp (asumsi timestamp disimpan sebagai string YYYY-MM-DD HH:MM:SS)
+  return db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account = 'cc' AND amount < 0 AND substr(timestamp, 1, 10) = ?").get(todayWITA) || { total: 0 };
 }
