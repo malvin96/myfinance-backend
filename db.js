@@ -17,6 +17,32 @@ export function addTx(p) {
   return stmt.run(p.user, p.account, p.amount, p.category, p.note);
 }
 
+// [FITUR] Rebuild Database dari Sheet (Sync)
+export function rebuildDatabase(txs) {
+  if (!txs || txs.length === 0) return 0;
+  
+  try {
+      console.log("♻️ Menghapus database lama...");
+      db.prepare("DELETE FROM transactions").run();
+      
+      console.log(`📥 Menyisipkan ${txs.length} data baru...`);
+      const insert = db.prepare("INSERT INTO transactions (timestamp, user, account, amount, category, note) VALUES (?, ?, ?, ?, ?, ?)");
+      
+      const insertMany = db.transaction((items) => {
+        for (const item of items) {
+          insert.run(item.timestamp, item.user, item.account, item.amount, item.category, item.note);
+        }
+      });
+
+      insertMany(txs);
+      console.log("✅ Rebuild Database Selesai.");
+      return txs.length;
+  } catch (error) {
+      console.error("❌ Gagal Rebuild DB:", error);
+      return 0;
+  }
+}
+
 // [FITUR] Ambil History Terakhir (Read Only)
 export function getLatestTransactions(limit = 10) {
   return db.prepare("SELECT * FROM transactions ORDER BY id DESC LIMIT ?").all(limit);
@@ -38,24 +64,6 @@ export function deleteLastTx(userCode) {
     return null;
 }
 
-// [FITUR] Rebuild Database (Sync Pull)
-// Menghapus total db lokal dan isi ulang dari array data (biasanya dari Sheet)
-export function rebuildDatabase(txs) {
-  if (!txs || txs.length === 0) return 0;
-  
-  db.prepare("DELETE FROM transactions").run();
-  
-  const insert = db.prepare("INSERT INTO transactions (timestamp, user, account, amount, category, note) VALUES (?, ?, ?, ?, ?, ?)");
-  const insertMany = db.transaction((items) => {
-    for (const item of items) {
-      insert.run(item.timestamp, item.user, item.account, item.amount, item.category, item.note);
-    }
-  });
-
-  insertMany(txs);
-  return txs.length;
-}
-
 // [FITUR] Cek Saldo & Kekayaan
 export function getRekapLengkap() {
   const rows = db.prepare("SELECT user, account, SUM(amount) as balance FROM transactions GROUP BY user, account HAVING balance != 0 ORDER BY user ASC, balance DESC").all();
@@ -67,9 +75,3 @@ export function getRekapLengkap() {
 export function getTotalCCHariIni() {
   return db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account = 'cc' AND amount < 0 AND date(timestamp) = date('now', 'localtime')").get() || { total: 0 };
 }
-
-// Dummy functions agar tidak error jika ada file lama yang memanggil
-export function getBudgetSummary() { return { income: 0, expense: 0 }; }
-export function getCashflowSummary() { return { income: 0, expense: 0 }; }
-export function getFilteredTransactions(filter) { return []; }
-export function resetAccountBalance() { return; }
