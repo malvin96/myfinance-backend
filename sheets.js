@@ -13,11 +13,9 @@ const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
 
 // --- HELPER FORMATTING (Safety First) ---
 const getSheetDate = (dateInput) => {
-    // Memastikan output selalu YYYY-MM-DD HH:mm:ss untuk SQL/Sheet
     try {
         const d = dateInput ? new Date(dateInput.replace(" ", "T")) : new Date();
         if (isNaN(d.getTime())) return new Date().toISOString().slice(0, 19).replace('T', ' ');
-        
         const pad = (n) => n.toString().padStart(2, '0');
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     } catch {
@@ -54,11 +52,14 @@ async function processQueue() {
       await doc.loadInfo();
       const sheet = doc.sheetsByIndex[0];
       
+      // [LOGIKA BARU] Penentuan Type
+      let finalType = tx.amount >= 0 ? 'Income' : 'Expense';
+      if (tx.category.toLowerCase() === 'transfer') finalType = 'Transfer';
+
       const rowData = {
         'Timestamp': getSheetDate(tx.timestamp),
         'User': tx.user === 'M' ? 'Malvin' : (tx.user === 'Y' ? 'Yovita' : tx.user),
-        // [FIX] Validasi Type: Jika >=0 Income, selain itu Expense. Otomatis & Akurat.
-        'Type': tx.amount >= 0 ? 'Income' : 'Expense',
+        'Type': finalType, // [UPDATE] Transfer, Income, atau Expense
         'Category': tx.category,
         'Note': tx.note,
         'Account': tx.account.toUpperCase(),
@@ -69,7 +70,7 @@ async function processQueue() {
       };
 
       await sheet.addRow(rowData);
-      console.log(`✅ Row added to Sheet: ${tx.note} [${rowData.Type}]`);
+      console.log(`✅ Row added to Sheet: ${tx.note} [${finalType}]`);
     } catch (error) {
       console.error("❌ Error Add Row:", error.message);
     }
@@ -97,15 +98,12 @@ export async function downloadFromSheet() {
     }
 
     const cleanedData = rows.map(row => {
-      // Konversi row ke object aman
       const raw = row.toObject ? row.toObject() : row; 
       
-      // Mapping User
       let u = 'M';
       const sheetUser = raw['User'];
       if (sheetUser && (sheetUser.includes('Yovita') || sheetUser === 'Y')) u = 'Y';
       
-      // Ambil RealAmount (Pastikan angka)
       let val = raw['RealAmount'];
       if (val === undefined || val === null || val === '') val = raw['Amount']; 
 
