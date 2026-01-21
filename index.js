@@ -8,7 +8,7 @@ import { createPDF } from "./export.js";
 import { appendToSheet, downloadFromSheet } from "./sheets.js"; 
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo Locked v11.4 (WITA Timezone)"));
+app.get("/", (req, res) => res.send("Bot MaYo Locked v11.5 (Menu & Transfer UI Updated)"));
 app.listen(process.env.PORT || 3000);
 
 initDB();
@@ -25,7 +25,7 @@ cron.schedule('58 */14 * * * *', async () => {
     const ownerId = process.env.TELEGRAM_USER_ID;
     if (ownerId) {
         if (lastBackupMsgId) await deleteMessage(ownerId, lastBackupMsgId);
-        // [UPDATE WITA] Tanggal Backup
+        // [WITA TIME]
         const timeString = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Makassar' });
         const caption = `💾 **AUTO BACKUP**\n📅 ${timeString} WITA\n_Sheet adalah Master Data._`;
         const result = await sendDocument(ownerId, "myfinance.db", caption, true); 
@@ -48,7 +48,7 @@ const handleMessage = async (msg) => {
     const chatId = msg.chat.id;
     const fromId = msg.from.id;
     
-    // [LOGIKA BARU] Deteksi File .db untuk Restore
+    // [LOGIKA] Deteksi File .db untuk Restore
     if (msg.document && msg.document.file_name && msg.document.file_name.endsWith('.db')) {
         await sendMessage(chatId, "📥 **Menerima Database...**\nMohon tunggu, sedang memproses file.");
         const tempPath = "temp_restore.db";
@@ -81,16 +81,23 @@ const handleMessage = async (msg) => {
     const userCode = isMalvin ? 'M' : 'Y';
     const userLabel = isMalvin ? "MALVIN" : "YOVITA";
 
-    // 1. SYSTEM COMMANDS
+    // 1. SYSTEM COMMANDS (MENU UI UPDATE)
     if (lowText === 'menu' || lowText === 'help' || lowText === '/start') {
-        return `🤖 MENU PERINTAH\n${line}\n` +
-               `📝 50rb makan bca (Catat)\n` +
-               `🔧 ss [akun] [jml] (Set Saldo)\n` +
-               `🔄 tf [jml] [dari] [ke] (Transfer)\n` +
-               `↩️ koreksi (Undo)\n` +
-               `📊 rekap | history | pdf\n` +
-               `☁️ sync (Tarik Data Sheet)\n` +
-               `💾 Kirim file .db (Restore Data)`;
+        return `🤖 **MENU PERINTAH (WITA)**\n${line}\n` +
+               `📝 **CATAT TRANSAKSI**\n` +
+               `Format: _[Nominal] [Ket] [Akun]_\n` +
+               `👉 \`50rb makan siang bca\`\n` +
+               `👉 \`gaji 10jt bca\` (Income)\n\n` +
+               `🔄 **TRANSFER DANA**\n` +
+               `Format: _tf [Jml] [Dari] [Ke]_\n` +
+               `👉 \`tf 500k bca ke cash\` (Sendiri)\n` +
+               `👉 \`tf 1jt bca ke bca yovita\` (Partner)\n\n` +
+               `🔧 **UTILITIES**\n` +
+               `• \`ss [akun] [jml]\` (Set Saldo)\n` +
+               `• \`koreksi\` (Undo Terakhir)\n` +
+               `• \`rekap\` | \`history\` | \`pdf\`\n` +
+               `• \`sync\` (Tarik Data Sheet)\n` +
+               `• Kirim file .db (Restore Data)`;
     }
 
     if (lowText.includes('rekap') || lowText.includes('saldo') || lowText === 'cek') {
@@ -186,7 +193,7 @@ const handleMessage = async (msg) => {
     // 2. PARSER
     const result = parseInput(text, userCode);
     if (result.type === 'error') {
-        if (['ss', 'tf', 'laporan'].some(x => lowText.startsWith(x))) return `⚠️ **FORMAT SALAH**\nContoh: \`50rb makan bca\``;
+        if (['ss', 'tf', 'laporan'].some(x => lowText.startsWith(x))) return `⚠️ **FORMAT SALAH**\nKetik \`menu\` untuk bantuan format.`;
         return null;
     }
 
@@ -195,15 +202,20 @@ const handleMessage = async (msg) => {
         return `✅ SALDO DIUPDATE\n👤 ${userLabel} | 🏦 ${result.tx.account.toUpperCase()}\n💰 ${fmt(result.tx.amount)}`;
     }
 
+    // [TRANSFER UI UPDATE]
     if (result.type === 'transfer') {
         // Eksekusi Langsung
         addTx(result.txOut); appendToSheet(result.txOut);
         addTx(result.txIn);  appendToSheet(result.txIn);
 
-        return `🔄 **TRANSFER BERHASIL**\n` +
-               `${result.txOut.account.toUpperCase()} (${result.txOut.user}) ➔ ${result.txIn.account.toUpperCase()} (${result.txIn.user})\n` +
-               `Nominal: ${fmt(Math.abs(result.txOut.amount))}\n` +
-               `Kategori: Transfer`;
+        const uOut = result.txOut.user === 'M' ? 'MALVIN' : 'YOVITA';
+        const uIn = result.txIn.user === 'M' ? 'MALVIN' : 'YOVITA';
+
+        return `🔄 **TRANSFER BERHASIL**\n${line}\n` +
+               `📤 ${result.txOut.account.toUpperCase()} (${uOut})\n` +
+               `📥 ${result.txIn.account.toUpperCase()} (${uIn})\n` +
+               `💰 **${fmt(Math.abs(result.txOut.amount))}**\n` +
+               `🏷️ Kategori: Transfer`;
     }
 
     if (result.type === 'tx') {
