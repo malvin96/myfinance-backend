@@ -5,10 +5,10 @@ import { pollUpdates, sendMessage, sendDocument, deleteMessage, downloadFile } f
 import { parseInput } from "./parser.js";
 import { initDB, addTx, getRekapLengkap, deleteLastTx, rebuildDatabase, getLatestTransactions, getAllTransactions, getTotalCCHariIni, importFromDBFile } from "./db.js";
 import { createPDF } from "./export.js";
-import { appendToSheet, downloadFromSheet, overwriteSheet } from "./sheets.js";
+import { appendToSheet, downloadFromSheet } from "./sheets.js"; // [FIX] overwriteSheet sudah dihapus
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo Locked v11.1 (DB Restore Active)"));
+app.get("/", (req, res) => res.send("Bot MaYo Locked v11.3 (UI User Label)"));
 app.listen(process.env.PORT || 3000);
 
 initDB();
@@ -204,7 +204,8 @@ const handleMessage = async (msg) => {
 
     if (result.type === 'tx') {
         addTx(result.tx); appendToSheet(result.tx);
-        return `✅ ${result.tx.category.toUpperCase()}\n${result.tx.note} : ${fmt(Math.abs(result.tx.amount))}\n(${result.tx.account.toUpperCase()})`;
+        // [UPDATE] Format Output: Menambahkan Info User di sebelah Kategori
+        return `✅ ${result.tx.category.toUpperCase()} | ${userLabel}\n${result.tx.note} : ${fmt(Math.abs(result.tx.amount))}\n(${result.tx.account.toUpperCase()})`;
     }
   
   } catch (err) {
