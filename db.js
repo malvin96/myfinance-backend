@@ -17,7 +17,7 @@ export function addTx(p) {
   return stmt.run(p.user, p.account, p.amount, p.category, p.note);
 }
 
-// [FITUR] Rebuild Database dari Sheet (Sync)
+// [FITUR] Rebuild Database (Dipakai Sync & Restore DB)
 export function rebuildDatabase(txs) {
   if (!txs || txs.length === 0) return 0;
   
@@ -43,17 +43,30 @@ export function rebuildDatabase(txs) {
   }
 }
 
-// [FITUR] Ambil History Terakhir (Read Only)
+// [FITUR BARU] Import Data dari File .db Eksternal
+export function importFromDBFile(tempDbPath) {
+    try {
+        const tempDb = new Database(tempDbPath, { readonly: true });
+        // Ambil semua data dari DB yang diupload
+        const rows = tempDb.prepare("SELECT * FROM transactions").all();
+        tempDb.close(); // Tutup koneksi DB temp
+
+        // Masukkan ke DB Utama menggunakan fungsi yang sudah ada
+        return rebuildDatabase(rows);
+    } catch (error) {
+        console.error("❌ Error Import DB:", error);
+        return -1; // Kode error
+    }
+}
+
 export function getLatestTransactions(limit = 10) {
   return db.prepare("SELECT * FROM transactions ORDER BY id DESC LIMIT ?").all(limit);
 }
 
-// [FITUR] Ambil Semua Data (Untuk Sync Push & Laporan)
 export function getAllTransactions() {
   return db.prepare("SELECT * FROM transactions ORDER BY id ASC").all();
 }
 
-// [FITUR] Hapus Transaksi Terakhir (Undo)
 export function deleteLastTx(userCode) {
     const stmt = db.prepare("SELECT * FROM transactions WHERE user = ? ORDER BY id DESC LIMIT 1");
     const last = stmt.get(userCode);
@@ -64,14 +77,12 @@ export function deleteLastTx(userCode) {
     return null;
 }
 
-// [FITUR] Cek Saldo & Kekayaan
 export function getRekapLengkap() {
   const rows = db.prepare("SELECT user, account, SUM(amount) as balance FROM transactions GROUP BY user, account HAVING balance != 0 ORDER BY user ASC, balance DESC").all();
   const totalWealth = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account != 'cc'").get();
   return { rows, totalWealth: totalWealth.total || 0 };
 }
 
-// [FITUR] Warning CC
 export function getTotalCCHariIni() {
   return db.prepare("SELECT SUM(amount) as total FROM transactions WHERE account = 'cc' AND amount < 0 AND date(timestamp) = date('now', 'localtime')").get() || { total: 0 };
 }
