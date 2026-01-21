@@ -8,14 +8,13 @@ import { createPDF } from "./export.js";
 import { appendToSheet, downloadFromSheet } from "./sheets.js";
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo Locked v10.2 (Date Fix)"));
+app.get("/", (req, res) => res.send("Bot MaYo Locked v11.0 (Direct Transfer)"));
 app.listen(process.env.PORT || 3000);
 
 initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
 const line = "━━━━━━━━━━━━━━━━━━━";
 
-const pendingAdmin = {};    
 const LIQUID_LIST = ['bca', 'cash', 'gopay', 'ovo', 'shopeepay'];
 const ASSET_LIST = ['bibit', 'mirrae', 'bca sekuritas'];
 let lastBackupMsgId = null; 
@@ -96,7 +95,6 @@ const handleMessage = async (msg) => {
         return res;
     }
 
-    // [FITUR UI BARU] HISTORY - FIXED DATE
     if (lowText.startsWith('history')) {
         const numOnly = lowText.replace(/[^0-9]/g, ''); 
         const limit = parseInt(numOnly) || 10;
@@ -107,12 +105,10 @@ const handleMessage = async (msg) => {
         let res = `🗓️ **RIWAYAT TRANSAKSI (${data.length})**\n`;
         
         data.forEach(r => {
-            // [FIX] Menggunakan String Slicing (Anti Invalid Date)
-            // Asumsi format DB: "YYYY-MM-DD HH:MM:SS"
             let dateStr = "??/??";
             if (r.timestamp && r.timestamp.length >= 10) {
-                const mo = r.timestamp.substring(5, 7); // Ambil Bulan
-                const da = r.timestamp.substring(8, 10); // Ambil Tanggal
+                const mo = r.timestamp.substring(5, 7); 
+                const da = r.timestamp.substring(8, 10); 
                 dateStr = `${da}/${mo}`;
             }
 
@@ -160,21 +156,7 @@ const handleMessage = async (msg) => {
         return await sendDocument(chatId, "myfinance.db", "💾 Manual Backup");
     }
 
-    // 2. LOGIKA TRANSFER
-    if (pendingAdmin[chatId] && !isNaN(text.replace(/k/gi, '000'))) {
-        const fee = parseFloat(text.replace(/k/gi, '000'));
-        const { txOut, txIn } = pendingAdmin[chatId];
-        addTx(txOut); addTx(txIn); 
-        appendToSheet(txOut); appendToSheet(txIn);
-        if (fee > 0) {
-            const txFee = { ...txOut, amount: -fee, category: 'Tagihan', note: `Admin Transfer: ${txOut.note}` };
-            addTx(txFee); appendToSheet(txFee);
-        }
-        delete pendingAdmin[chatId];
-        return `✅ **Transfer Sukses**\n${txOut.account.toUpperCase()} ➔ ${txIn.account.toUpperCase()}\nBiaya Admin: ${fmt(fee)}`;
-    }
-
-    // 3. PARSER
+    // 2. PARSER
     const result = parseInput(text, userCode);
     if (result.type === 'error') {
         if (['ss', 'tf', 'laporan'].some(x => lowText.startsWith(x))) return `⚠️ **FORMAT SALAH**\nContoh: \`50rb makan bca\``;
@@ -186,9 +168,21 @@ const handleMessage = async (msg) => {
         return `✅ SALDO DIUPDATE\n👤 ${userLabel} | 🏦 ${result.tx.account.toUpperCase()}\n💰 ${fmt(result.tx.amount)}`;
     }
 
+    // [FITUR UPDATE] TRANSFER LANGSUNG (TANPA TANYA ADMIN FEE)
     if (result.type === 'transfer') {
-        pendingAdmin[chatId] = { txOut: result.txOut, txIn: result.txIn };
-        return `🔄 TRANSFER\n${result.txOut.account.toUpperCase()} ➔ ${result.txIn.account.toUpperCase()}\nNominal: ${fmt(Math.abs(result.txOut.amount))}\n\n**Biaya Admin?** (Ketik 0 jika gratis)`;
+        // Eksekusi Langsung
+        addTx(result.txOut); appendToSheet(result.txOut);
+        addTx(result.txIn);  appendToSheet(result.txIn);
+
+        // Deteksi apakah transfer ke diri sendiri atau partner
+        const targetLabel = result.txIn.user !== result.txOut.user 
+            ? `Partner (${result.txIn.user === 'M' ? 'Malvin' : 'Yovita'})` 
+            : `Akun Sendiri`;
+
+        return `🔄 **TRANSFER BERHASIL**\n` +
+               `${result.txOut.account.toUpperCase()} (${result.txOut.user}) ➔ ${result.txIn.account.toUpperCase()} (${result.txIn.user})\n` +
+               `Nominal: ${fmt(Math.abs(result.txOut.amount))}\n` +
+               `Kategori: Transfer`;
     }
 
     if (result.type === 'tx') {
