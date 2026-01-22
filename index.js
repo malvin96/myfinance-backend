@@ -1,7 +1,7 @@
 import express from "express";
 import fs from 'fs';
-import http from 'http'; // [NEW] Untuk fitur Keep-Alive
-import https from 'https'; // [NEW] Support HTTPS ping
+import http from 'http';
+import https from 'https';
 import cron from 'node-cron';
 import { pollUpdates, sendMessage, sendDocument, deleteMessage, downloadFile } from "./telegram.js";
 import { parseInput } from "./parser.js";
@@ -11,26 +11,30 @@ import { appendToSheet, downloadFromSheet } from "./sheets.js";
 import { getCategoryEmoji } from "./categories.js"; 
 
 const app = express();
-app.get("/", (req, res) => res.send("Bot MaYo Locked v12.0 (UI & Features Updated)"));
+app.get("/", (req, res) => res.send("Bot MaYo Locked v12.1 (Stability Fix & Render Optimized)"));
 
-// [FITUR TAMBAHAN] Keep-Alive Mechanism
-// Mencegah sistem sleep agar Cron Auto Backup tetap berjalan presisi
+// [FITUR] Keep-Alive Mechanism (Render Optimized)
+// Menggunakan URL eksternal agar hosting mendeteksi traffic nyata & mencegah sleep
 const startKeepAlive = () => {
     setInterval(() => {
-        const url = process.env.APP_URL || `http://localhost:${process.env.PORT || 3000}`;
+        // Render secara otomatis menyediakan variabel RENDER_EXTERNAL_URL
+        // Jika testing lokal, fallback ke localhost
+        const url = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || `http://localhost:${process.env.PORT || 10000}`;
         const protocol = url.startsWith("https") ? https : http;
         
         protocol.get(url, (res) => {
-            // Ping sukses, sistem tetap bangun. Silent log.
+            // Ping sukses (Status 200 OK), server tetap bangun.
+            // console.log(`Ping Success: ${url}`); // Uncomment jika ingin log
         }).on('error', (err) => {
-            // Abaikan error koneksi saat ping diri sendiri
+            console.error("⚠️ Keep-Alive Ping Error:", err.message);
         });
     }, 5 * 60 * 1000); // Ping setiap 5 menit
 };
 
-// Start Server & Keep Alive
-app.listen(process.env.PORT || 3000, () => {
-    console.log("Server berjalan...");
+// Start Server dengan Port Fleksibel (Default Render: 10000)
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+    console.log(`Server berjalan di port ${PORT}...`);
     startKeepAlive();
 });
 
@@ -120,11 +124,20 @@ cron.schedule('58 */14 * * * *', async () => {
   try {
     const ownerId = process.env.TELEGRAM_USER_ID;
     if (ownerId) {
+        // Hapus pesan backup sebelumnya agar chat tidak penuh
         if (lastBackupMsgId) await deleteMessage(ownerId, lastBackupMsgId);
+        
         const timeString = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Makassar' });
         const caption = `💾 **AUTO BACKUP**\n📅 ${timeString} WITA\n_Sheet adalah Master Data._`;
+        
+        // Panggil fungsi sendDocument (sudah diperbaiki headers-nya)
         const result = await sendDocument(ownerId, "myfinance.db", caption, true); 
-        if (result && result.ok) lastBackupMsgId = result.result.message_id;
+        
+        if (result && result.ok) {
+            lastBackupMsgId = result.result.message_id;
+        } else {
+            console.error("❌ Auto Backup Gagal (API Response False)");
+        }
     }
   } catch (err) { console.error("[AUTO BACKUP ERROR]", err); }
 });
@@ -136,6 +149,7 @@ cron.schedule('0 23 * * *', async () => {
     await sendMessage(ownerId, msg);
 }, { timezone: "Asia/Makassar" });
 
+// Cek Tagihan CC jam 21:00 WITA
 cron.schedule('0 21 * * *', async () => {
     const ownerId = process.env.TELEGRAM_USER_ID;
     const ccData = getTotalCCHariIni();
@@ -165,6 +179,7 @@ const handleMessage = async (msg) => {
     const text = msg.text ? msg.text.trim() : "";
     const lowText = text.toLowerCase();
 
+    // AUTH CHECK
     const isMalvin = fromId === parseInt(process.env.TELEGRAM_USER_ID || 5023700044);
     const isYovita = fromId === parseInt(process.env.USER_ID_PARTNER || 8469259152);
     
@@ -173,7 +188,7 @@ const handleMessage = async (msg) => {
     const userCode = isMalvin ? 'M' : 'Y';
     const userLabel = isMalvin ? "MALVIN" : "YOVITA";
 
-    // 1. SYSTEM COMMANDS (UI MENU UPDATE)
+    // 1. SYSTEM COMMANDS
     if (lowText === 'menu' || lowText === 'help' || lowText === '/start') {
         return `🤖 **MENU PERINTAH**\n${line}\n` +
                `📝 **CATAT TRANSAKSI**\n` +
@@ -230,18 +245,18 @@ const handleMessage = async (msg) => {
         return res;
     }
 
-    // [FITUR BARU] Cari Transaksi
+    // Cari Transaksi
     if (lowText.startsWith('cari')) {
         const parts = lowText.split(' ');
         const keyword = parts[1];
         if (!keyword) return "🔍 Ketik `cari [kata kunci]`";
-        const limit = parseInt(parts[2]) || 10; // Default 10 hasil
+        const limit = parseInt(parts[2]) || 10;
         
         const results = searchTransactions(keyword, limit);
         return buildHistoryUI(results, `HASIL PENCARIAN "${keyword}"`);
     }
 
-    // [FITUR BARU] Daily Recap Manual
+    // Daily Recap Manual
     if (lowText === 'daily' || lowText === 'harian') {
         return generateDailyRecap();
     }
