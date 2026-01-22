@@ -1,16 +1,38 @@
 import express from "express";
 import fs from 'fs';
+import http from 'http'; // [NEW] Untuk fitur Keep-Alive
+import https from 'https'; // [NEW] Support HTTPS ping
 import cron from 'node-cron';
 import { pollUpdates, sendMessage, sendDocument, deleteMessage, downloadFile } from "./telegram.js";
 import { parseInput } from "./parser.js";
 import { initDB, addTx, getRekapLengkap, deleteLastTx, rebuildDatabase, getLatestTransactions, getAllTransactions, getTotalCCHariIni, importFromDBFile, searchTransactions, getDailyTransactions } from "./db.js";
 import { createPDF } from "./export.js";
 import { appendToSheet, downloadFromSheet } from "./sheets.js"; 
-import { getCategoryEmoji } from "./categories.js"; // Import Helper Emoji
+import { getCategoryEmoji } from "./categories.js"; 
 
 const app = express();
 app.get("/", (req, res) => res.send("Bot MaYo Locked v12.0 (UI & Features Updated)"));
-app.listen(process.env.PORT || 3000);
+
+// [FITUR TAMBAHAN] Keep-Alive Mechanism
+// Mencegah sistem sleep agar Cron Auto Backup tetap berjalan presisi
+const startKeepAlive = () => {
+    setInterval(() => {
+        const url = process.env.APP_URL || `http://localhost:${process.env.PORT || 3000}`;
+        const protocol = url.startsWith("https") ? https : http;
+        
+        protocol.get(url, (res) => {
+            // Ping sukses, sistem tetap bangun. Silent log.
+        }).on('error', (err) => {
+            // Abaikan error koneksi saat ping diri sendiri
+        });
+    }, 5 * 60 * 1000); // Ping setiap 5 menit
+};
+
+// Start Server & Keep Alive
+app.listen(process.env.PORT || 3000, () => {
+    console.log("Server berjalan...");
+    startKeepAlive();
+});
 
 initDB();
 const fmt = n => "Rp " + Math.round(n).toLocaleString("id-ID");
@@ -33,7 +55,7 @@ const buildHistoryUI = (data, title) => {
         }
         const icon = r.amount >= 0 ? '🟢' : '🔴';
         const userNm = r.user === 'M' ? 'Malvin' : 'Yovita';
-        const catEmoji = getCategoryEmoji(r.category); // Pakai Emoji
+        const catEmoji = getCategoryEmoji(r.category); 
         
         res += `${line}\n`;
         res += `📅 ${dateStr} | ${userNm}\n`;
@@ -93,6 +115,7 @@ const generateDailyRecap = () => {
 };
 
 // --- CRON JOBS ---
+// Jadwal: Detik 58, Setiap menit ke-14 (00:58, 14:58, 28:58, dst)
 cron.schedule('58 */14 * * * *', async () => {
   try {
     const ownerId = process.env.TELEGRAM_USER_ID;
@@ -106,7 +129,7 @@ cron.schedule('58 */14 * * * *', async () => {
   } catch (err) { console.error("[AUTO BACKUP ERROR]", err); }
 });
 
-// [FITUR BARU] Auto Daily Recap jam 23:00 WITA
+// Auto Daily Recap jam 23:00 WITA
 cron.schedule('0 23 * * *', async () => {
     const ownerId = process.env.TELEGRAM_USER_ID;
     const msg = generateDailyRecap();
@@ -288,7 +311,6 @@ const handleMessage = async (msg) => {
 
     if (result.type === 'tx') {
         addTx(result.tx); appendToSheet(result.tx);
-        // [UI UPDATE] Tambah Emoji Kategori
         const catEmoji = getCategoryEmoji(result.tx.category);
         return `✅ ${catEmoji} ${result.tx.category.toUpperCase()} | ${userLabel}\n${result.tx.note} : ${fmt(Math.abs(result.tx.amount))}\n(${result.tx.account.toUpperCase()})`;
     }
