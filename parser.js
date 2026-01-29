@@ -25,8 +25,10 @@ export function parseInput(line, userCode) {
   const low = line.toLowerCase().trim();
   const tokens = line.split(/\s+/);
 
-  // Perintah sistem (Bypass parser transaksi)
-  if (['koreksi', 'menu', 'sync', 'status', 'backup', 'rekap', 'cari', 'laporan', 'daily'].includes(low)) {
+  // 0. SYSTEM COMMANDS (Bypass Logic)
+  // Ini penting agar perintah ini tidak masuk ke logika parser uang
+  const sysCommands = ['koreksi', 'menu', 'sync', 'status', 'backup', 'rekap', 'cari', 'laporan', 'daily', 'history', 'export'];
+  if (sysCommands.some(cmd => low.startsWith(cmd))) {
       return { type: 'system' }; 
   }
 
