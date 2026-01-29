@@ -22,27 +22,29 @@ function parseAmount(str) {
 
 export function parseInput(line, userCode) {
   if (!line) return { type: 'error' };
-  const low = line.toLowerCase();
+  const low = line.toLowerCase().trim();
   const tokens = line.split(/\s+/);
 
-  if (low === 'koreksi' || low === 'undo') return { type: 'koreksi' };
-
-  // 1. Logika SS (Set Saldo)
-  if (low.startsWith('ss ')) {
-    const amountToken = tokens.find(t => parseAmount(t) !== null);
-    const accToken = tokens.find(t => t !== 'ss' && parseAmount(t) === null);
-    if (amountToken) {
-      const acc = Object.keys(ACCOUNT_MAP).find(k => accToken === k || ACCOUNT_MAP[k].includes(accToken)) || 'cash';
-      return { type: 'adjustment', tx: { user: userCode, account: acc, amount: parseAmount(amountToken), category: 'Adjustment', note: 'Set Saldo' } };
-    }
+  // Perintah sistem (Bypass parser transaksi)
+  if (['koreksi', 'menu', 'sync', 'status', 'backup', 'rekap', 'cari', 'laporan', 'daily'].includes(low)) {
+      return { type: 'system' }; 
   }
 
-  // 2. Logika Transfer (tf bca ke yovita 100k)
-  if (low.includes(' ke ') || low.startsWith('tf ')) {
-    const amountToken = tokens.find(t => parseAmount(t) !== null);
-    if (amountToken) {
-      const amt = parseAmount(amountToken);
-      const parts = low.replace('tf ', '').split(' ke ');
+  // 1. Logika Set Saldo (ss)
+  if (low.startsWith('ss ')) {
+    const parts = line.split(' ');
+    const amt = parseAmount(parts[parts.length - 1]);
+    const accToken = parts[1].toLowerCase();
+    const account = Object.keys(ACCOUNT_MAP).find(k => k === accToken || ACCOUNT_MAP[k].includes(accToken)) || 'cash';
+    if (amt !== null) return { type: 'adjustment', tx: { user: userCode, account, amount: amt, category: 'Adjustment', note: 'Set Saldo' } };
+  }
+
+  // 2. Logika Transfer (tf)
+  if (low.startsWith('tf ')) {
+    const amtToken = tokens.find(t => parseAmount(t) !== null);
+    if (amtToken) {
+      const amt = parseAmount(amtToken);
+      const parts = line.split(' ke ');
       if (parts.length === 2) {
         let fromAcc = Object.keys(ACCOUNT_MAP).find(k => parts[0].includes(k) || ACCOUNT_MAP[k].some(a => parts[0].includes(a))) || 'cash';
         let toAcc = Object.keys(ACCOUNT_MAP).find(k => parts[1].includes(k) || ACCOUNT_MAP[k].some(a => parts[1].includes(a))) || 'cash';
@@ -58,7 +60,7 @@ export function parseInput(line, userCode) {
     }
   }
 
-  // 3. Logika Transaksi Biasa (Greedy Search)
+  // 3. Logika Transaksi Biasa
   const amountToken = tokens.find(t => parseAmount(t) !== null);
   if (!amountToken) return { type: 'error' };
   const amountRaw = parseAmount(amountToken);
@@ -67,9 +69,16 @@ export function parseInput(line, userCode) {
   for (let i = 0; i < noteTokens.length; i++) {
     const t = noteTokens[i].toLowerCase().replace(/[^a-z0-9]+/g, '');
     const foundAcc = Object.keys(ACCOUNT_MAP).find(key => key === t || ACCOUNT_MAP[key].includes(t));
-    if (foundAcc) { account = foundAcc; noteTokens.splice(i, 1); break; }
+    if (foundAcc) {
+      account = foundAcc;
+      noteTokens.splice(i, 1);
+      break;
+    }
   }
-  const note = noteTokens.join(' ') || 'Tanpa catatan';
+
+  const note = noteTokens.join(' ');
   const category = detectCategory(note);
-  return { type: 'tx', category, tx: { user: userCode, account, amount: category === 'Pendapatan' ? Math.abs(amountRaw) : -Math.abs(amountRaw), category, note } };
+  const amount = (low.includes('masuk') || low.includes('terima') || category === 'Pendapatan') ? Math.abs(amountRaw) : -Math.abs(amountRaw);
+
+  return { type: 'tx', tx: { user: userCode, account, amount, category, note } };
 }
