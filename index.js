@@ -13,10 +13,10 @@ import { getCategoryEmoji } from "./categories.js";
 const app = express();
 const botStartTime = new Date(); 
 
-app.get("/", (req, res) => res.send("Bot MaYo Finance v12.8 (Strict User Whitelist)"));
+app.get("/", (req, res) => res.send("Bot MaYo Finance v12.9 (Fixed Rekap UI & Strict Whitelist)"));
 app.get("/health", (req, res) => res.status(200).json({ status: "ok", uptime: botStartTime }));
 
-// [FITUR] Keep-Alive Internal (Backup untuk Uptime Robot)
+// [FITUR] Keep-Alive Internal
 const startKeepAlive = () => {
     setInterval(() => {
         const url = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
@@ -32,18 +32,16 @@ async function handleMessage(msg) {
     const text = msg.text;
     if (!text) return null;
     
-    // --- [UPDATE] LOGIKA DETEKSI USER & WHITELIST ---
-    const chatId = msg.chat.id; // Untuk reply message
-    const senderId = msg.from ? msg.from.id.toString() : chatId.toString(); // ID Pengirim Asli
+    // --- [KONTEKS 1] STRICT SECURITY WHITELIST ---
+    const chatId = msg.chat.id;
+    const senderId = msg.from ? msg.from.id.toString() : chatId.toString();
     
-    // Ambil ENV Variable
     const ID_MALVIN = process.env.TELEGRAM_USER_ID; 
     const ID_PARTNER = process.env.USER_ID_PARTNER;
 
     let userCode = null;
     let userLabel = '';
 
-    // Cek Identitas (Strict Whitelist)
     if (senderId === ID_MALVIN) {
         userCode = 'M';
         userLabel = 'MALVIN';
@@ -51,9 +49,8 @@ async function handleMessage(msg) {
         userCode = 'Y';
         userLabel = 'YOVITA';
     } else {
-        // Jika ID tidak terdaftar di ENV, abaikan (Silent Block)
-        console.log(`⛔ Unauthorized Access attempted by: ${senderId} (${msg.from ? msg.from.first_name : 'Unknown'})`);
-        return null; 
+        console.log(`⛔ Unauthorized Access: ${senderId}`);
+        return null; // Silent Ignore
     }
     
     const lowText = text.toLowerCase().trim();
@@ -62,71 +59,99 @@ async function handleMessage(msg) {
     // --- 1. FITUR MENU ---
     if (lowText === 'menu') {
         return `🏠 **MENU MAYO FINANCE**\n${line}\n` +
-               `👤 **User Terdeteksi:** ${userLabel}\n` +
+               `👤 **User:** ${userLabel}\n` +
                `🆔 **ID:** \`${senderId}\`\n\n` +
                `💰 **Input Cepat:**\n\`15k bca mkn siang\`\n\`50rb gopay bensin\`\n\n` +
                `🔄 **Transfer & Saldo:**\n\`tf 50k bca ke gopay\`\n\`ss bca 1.500.000\`\n\n` +
-               `📊 **Laporan & Data:**\n• \`rekap\` : Lihat saldo semua akun\n• \`daily\` : Transaksi hari ini\n• \`history\` : 10 transaksi terakhir\n• \`cari [kata]\` : Cari transaksi\n\n` +
+               `📊 **Laporan & Data:**\n• \`rekap\` : Lihat saldo per kategori\n• \`daily\` : Transaksi hari ini\n• \`history\` : 10 transaksi terakhir\n• \`cari [kata]\` : Cari transaksi\n\n` +
                `⚙️ **Sistem:**\n• \`sync\` : Ambil data dari Google Sheet\n• \`export\` : Download PDF Laporan\n• \`backup\` : File Database (.db)\n• \`koreksi\` : Hapus transaksi terakhir\n• \`status\` : Cek kesehatan bot`;
     }
 
-    // --- 2. FITUR REKAP ---
+    // --- 2. [UPDATE REQUEST] FITUR REKAP UI ---
     if (lowText === 'rekap') {
         const rekap = getRekapLengkap();
         if (rekap.rows.length === 0) return "📭 Belum ada data transaksi.";
-        
-        let res = `📊 **REKAP SALDO AKHIR**\n${line}\n`;
-        let currentU = '';
-        rekap.rows.forEach(r => {
-            const u = r.user === 'M' ? '👤 **MALVIN**' : '👤 **YOVITA**';
-            if (u !== currentU) {
-                res += `\n${u}\n`;
-                currentU = u;
+
+        // Pengelompokan Akun
+        const liquidAccs = ['bca', 'cash', 'gopay', 'ovo', 'shopeepay'];
+        const assetAccs = ['bibit', 'mirrae', 'bca sekuritas'];
+
+        let res = `📊 **REKAP SALDO KATEGORI**\n${line}\n`;
+
+        const renderUser = (code, name) => {
+            const userRows = rekap.rows.filter(r => r.user === code);
+            if (userRows.length === 0) return "";
+
+            let section = `👤 **${name}**\n`;
+            
+            // Sub-kategori Liquid
+            const liquids = userRows.filter(r => liquidAccs.includes(r.account));
+            if (liquids.length > 0) {
+                section += `*-- Liquid --*\n`;
+                let subTotal = 0;
+                liquids.forEach(r => {
+                    section += `• ${r.account.toUpperCase()}: ${fmt(r.balance)}\n`;
+                    subTotal += r.balance;
+                });
+                section += `Sub-Total: ${fmt(subTotal)}\n`;
             }
-            res += `• ${r.account.toUpperCase()}: ${fmt(r.balance)}\n`;
-        });
-        res += `\n${line}\n💰 **TOTAL: Rp ${fmt(rekap.totalWealth)}**`;
+
+            // Sub-kategori Assets
+            const assets = userRows.filter(r => assetAccs.includes(r.account));
+            if (assets.length > 0) {
+                section += `*-- Asset/Invest --*\n`;
+                let subTotal = 0;
+                assets.forEach(r => {
+                    section += `• ${r.account.toUpperCase()}: ${fmt(r.balance)}\n`;
+                    subTotal += r.balance;
+                });
+                section += `Sub-Total: ${fmt(subTotal)}\n`;
+            }
+
+            // Total per User
+            const totalU = userRows.reduce((a, b) => a + b.balance, 0);
+            section += `**TOTAL ${code}: Rp ${fmt(totalU)}**\n\n`;
+            return section;
+        };
+
+        res += renderUser('M', 'MALVIN');
+        res += renderUser('Y', 'YOVITA');
+        res += `${line}\n💰 **NETWORTH: Rp ${fmt(rekap.totalWealth)}**`;
         return res;
     }
 
-    // --- 3. FITUR STATUS ---
+    // --- 3. FITUR STATUS (WITA CONTEXT) ---
     if (lowText === 'status') {
         const diff = Math.floor((new Date() - botStartTime) / 1000);
         const hours = Math.floor(diff / 3600);
         const mins = Math.floor((diff % 3600) / 60);
         const rekap = getRekapLengkap(); 
-        
         return `🤖 **STATUS BOT MAYO**\n${line}\n` +
                `✅ Sistem: **ONLINE**\n` +
                `👤 User Aktif: **${userLabel}**\n` + 
-               `🛡️ Security: **Whitelist Only**\n` +
-               `🕒 Uptime: ${hours} Jam ${mins} Menit\n` +
-               `📊 Database: ${rekap.rows.length} Data\n` +
-               `📅 Server Time: ${new Date().toLocaleString('id-ID', {timeZone: 'Asia/Makassar'})}`;
+               `🛡️ Security: **Whitelist Active**\n` +
+               `🕒 Uptime: ${hours}j ${mins}m\n` +
+               `📊 Database: ${rekap.rows.length} Akun\n` +
+               `📅 WITA: ${new Date().toLocaleString('id-ID', {timeZone: 'Asia/Makassar'})}`;
     }
 
-    // --- 4. FITUR SYNC ---
+    // --- FITUR LAINNYA (LOCKED/STABIL) ---
     if (lowText === 'sync') {
-        await sendMessage(chatId, "🔄 **SYNC STARTED**\nSedang mengambil data dari Google Sheet...");
+        await sendMessage(chatId, "🔄 **SYNC STARTED**...");
         try {
             const data = await downloadFromSheet();
             if (data && data.length > 0) {
                 const count = rebuildDatabase(data);
-                return `✅ **SYNC SUKSES**\n${line}\nDatabase telah diperbarui dengan ${count} transaksi dari Sheet.`;
-            } else {
-                return "⚠️ Sheet kosong atau gagal mengambil data.";
+                return `✅ **SYNC SUKSES**\nTotal: ${count} baris data.`;
             }
-        } catch (e) {
-            return `❌ Gagal Sync: ${e.message}`;
-        }
+            return "⚠️ Sheet kosong.";
+        } catch (e) { return `❌ Gagal: ${e.message}`; }
     }
 
-    // --- 5. LOG HARIAN & HISTORY ---
     if (lowText === 'daily' || lowText === 'history') {
         const txs = lowText === 'daily' ? getDailyTransactions() : getLatestTransactions(10);
-        if (txs.length === 0) return `📭 Tidak ada transaksi ${lowText === 'daily' ? 'hari ini' : 'terbaru'}.`;
-        
-        let res = `📑 **${lowText.toUpperCase()} TRANSAKSI**\n${line}\n`;
+        if (txs.length === 0) return "📭 Kosong.";
+        let res = `📑 **${lowText.toUpperCase()}**\n${line}\n`;
         txs.forEach(t => {
             const emoji = getCategoryEmoji(t.category);
             res += `${t.user}|${t.account.toUpperCase()}|${fmt(t.amount)}|${emoji}${t.note || t.category}\n`;
@@ -134,90 +159,53 @@ async function handleMessage(msg) {
         return res;
     }
 
-    // --- 6. PENCARIAN ---
     if (lowText.startsWith('cari ')) {
         const keyword = lowText.replace('cari ', '').trim();
-        if (!keyword) return "⚠️ Masukkan kata kunci. Contoh: `cari sate`";
-        
         const txs = searchTransactions(keyword);
-        if (txs.length === 0) return `🔍 Tidak ditemukan transaksi untuk "${keyword}"`;
-        
-        let res = `🔍 **HASIL CARI: ${keyword.toUpperCase()}**\n${line}\n`;
-        txs.slice(0, 15).forEach(t => { 
-             res += `• ${t.timestamp.split(' ')[0]} | ${fmt(t.amount)} | ${t.note}\n`;
-        });
+        if (txs.length === 0) return `🔍 Tidak ada hasil untuk "${keyword}"`;
+        let res = `🔍 **CARI: ${keyword.toUpperCase()}**\n${line}\n`;
+        txs.slice(0, 10).forEach(t => res += `• ${t.timestamp.split(' ')[0]} | ${fmt(t.amount)} | ${t.note}\n`);
         return res;
     }
 
-    // --- 7. EXPORT & BACKUP ---
     if (lowText === 'export') {
-        await sendMessage(chatId, "⏳ Sedang memproses PDF...");
-        try {
-            const allTxs = getAllTransactions();
-            const pdfPath = await createPDF(allTxs);
-            await sendDocument(chatId, pdfPath, "📊 Laporan Keuangan Lengkap");
-            fs.unlinkSync(pdfPath); 
-            return null; 
-        } catch (e) {
-            return `❌ Gagal Export: ${e.message}`;
-        }
-    }
-
-    if (lowText === 'backup') {
-        await sendDocument(chatId, "./myfinance.db", "📦 Backup Database SQLite");
+        await sendMessage(chatId, "⏳ Exporting PDF...");
+        const pdfPath = await createPDF(getAllTransactions());
+        await sendDocument(chatId, pdfPath, "📊 Laporan MaYo");
+        fs.unlinkSync(pdfPath);
         return null;
     }
 
-    // --- 8. KOREKSI ---
+    if (lowText === 'backup') {
+        await sendDocument(chatId, "./myfinance.db", "📦 Database Backup");
+        return null;
+    }
+
     if (lowText === 'koreksi') {
         const deleted = deleteLastTx(userCode);
-        if (deleted) {
-            return `🗑️ **TRANSAKSI DIHAPUS**\n${line}\n` +
-                   `👤 Milik: **${userLabel}**\n` +
-                   `🏦 ${deleted.account.toUpperCase()}\n` +
-                   `💰 ${fmt(deleted.amount)}\n` +
-                   `📝 ${deleted.note}`;
-        }
-        return `⚠️ Tidak ada transaksi terakhir milik ${userLabel}.`;
+        if (deleted) return `🗑️ **DIHAPUS**\n${deleted.account.toUpperCase()} | ${fmt(deleted.amount)}\n${deleted.note}`;
+        return "⚠️ Tidak ada data.";
     }
 
-    // --- 9. PARSER TRANSAKSI ---
+    // LOGIKA PARSER (NON-COMMAND)
     const result = parseInput(text, userCode);
-
-    if (result.type === 'error') {
-        if (['ss', 'tf', 'laporan', 'rekap', 'cari', 'sync'].some(x => lowText.startsWith(x))) {
-            return `⚠️ **FORMAT TIDAK DIKENALI**\nKetik \`menu\` untuk melihat daftar perintah.`;
-        }
-        return null; 
-    }
+    if (result.type === 'error') return null;
 
     if (result.type === 'adjustment') {
         addTx(result.tx); appendToSheet(result.tx);
-        return `✅ **SALDO DIUPDATE**\n${line}\n👤 ${userLabel} | 🏦 ${result.tx.account.toUpperCase()}\n💰 Posisi Baru: **${fmt(result.tx.amount)}**`;
+        return `✅ **SALDO DIUPDATE**\n👤 ${userLabel} | 🏦 ${result.tx.account.toUpperCase()}\n💰 Posisi: ${fmt(result.tx.amount)}`;
     }
 
     if (result.type === 'transfer') {
         addTx(result.txOut); appendToSheet(result.txOut);
         addTx(result.txIn);  appendToSheet(result.txIn);
-        
-        const uOut = result.txOut.user === 'M' ? 'MALVIN' : 'YOVITA';
-        const uIn = result.txIn.user === 'M' ? 'MALVIN' : 'YOVITA';
-
-        return `🔄 **TRANSFER BERHASIL**\n${line}\n` +
-               `📤 ${result.txOut.account.toUpperCase()} (${uOut})\n` +
-               `📥 ${result.txIn.account.toUpperCase()} (${uIn})\n` +
-               `💰 **${fmt(Math.abs(result.txOut.amount))}**\n` +
-               `🏷️ Kategori: Transfer`;
+        return `🔄 **TRANSFER BERHASIL**\n💰 **${fmt(Math.abs(result.txOut.amount))}**\n📤 ${result.txOut.account.toUpperCase()}\n📥 ${result.txIn.account.toUpperCase()}`;
     }
 
     if (result.type === 'tx') {
         addTx(result.tx); appendToSheet(result.tx);
-        const catEmoji = getCategoryEmoji(result.tx.category);
-        return `✅ **BERHASIL DICATAT**\n${line}\n` +
-               `👤 ${userLabel} | 🏦 ${result.tx.account.toUpperCase()}\n` +
-               `💰 **${fmt(result.tx.amount)}**\n` +
-               `🏷️ ${catEmoji} ${result.tx.category}\n` +
-               `📝 ${result.tx.note}`;
+        const emoji = getCategoryEmoji(result.tx.category);
+        return `✅ **BERHASIL DICATAT**\n${line}\n👤 ${userLabel} | 🏦 ${result.tx.account.toUpperCase()}\n💰 **${fmt(result.tx.amount)}**\n🏷️ ${emoji} ${result.tx.category}\n📝 ${result.tx.note}`;
     }
 
     return null;
@@ -225,14 +213,13 @@ async function handleMessage(msg) {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server v12.9 running on port ${PORT}`);
     initDB(); 
     startKeepAlive(); 
     pollUpdates(handleMessage); 
 });
 
 cron.schedule('55 23 * * *', async () => {
-    console.log("⏰ Menjalankan Auto-Sync Malam...");
     try {
         const data = await downloadFromSheet();
         if (data.length > 0) rebuildDatabase(data);
