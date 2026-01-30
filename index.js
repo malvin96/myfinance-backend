@@ -13,7 +13,7 @@ import { getCategoryEmoji } from "./categories.js";
 const app = express();
 const botStartTime = new Date(); 
 
-app.get("/", (req, res) => res.send("Bot MaYo Finance v12.7 (User Detection Fixed)"));
+app.get("/", (req, res) => res.send("Bot MaYo Finance v12.8 (Strict User Whitelist)"));
 app.get("/health", (req, res) => res.status(200).json({ status: "ok", uptime: botStartTime }));
 
 // [FITUR] Keep-Alive Internal (Backup untuk Uptime Robot)
@@ -32,19 +32,29 @@ async function handleMessage(msg) {
     const text = msg.text;
     if (!text) return null;
     
-    // --- PERBAIKAN LOGIKA DETEKSI USER ---
-    const chatId = msg.chat.id; // ID Chat (untuk reply)
+    // --- [UPDATE] LOGIKA DETEKSI USER & WHITELIST ---
+    const chatId = msg.chat.id; // Untuk reply message
+    const senderId = msg.from ? msg.from.id.toString() : chatId.toString(); // ID Pengirim Asli
     
-    // 1. Gunakan msg.from.id (ID Pengirim) bukan msg.chat.id (ID Grup)
-    const senderId = msg.from ? msg.from.id : chatId; 
+    // Ambil ENV Variable
+    const ID_MALVIN = process.env.TELEGRAM_USER_ID; 
+    const ID_PARTNER = process.env.USER_ID_PARTNER;
 
-    // 2. Gunakan Nama Variable ENV yang Benar (TELEGRAM_USER_ID)
-    // Pastikan di Render Variable bernama TELEGRAM_USER_ID diisi dengan 5023700044
-    const MY_ID = process.env.TELEGRAM_USER_ID; 
+    let userCode = null;
+    let userLabel = '';
 
-    // 3. Logika Penentuan
-    const userCode = (senderId.toString() === MY_ID) ? 'M' : 'Y';
-    const userLabel = userCode === 'M' ? 'MALVIN' : 'YOVITA';
+    // Cek Identitas (Strict Whitelist)
+    if (senderId === ID_MALVIN) {
+        userCode = 'M';
+        userLabel = 'MALVIN';
+    } else if (senderId === ID_PARTNER) {
+        userCode = 'Y';
+        userLabel = 'YOVITA';
+    } else {
+        // Jika ID tidak terdaftar di ENV, abaikan (Silent Block)
+        console.log(`⛔ Unauthorized Access attempted by: ${senderId} (${msg.from ? msg.from.first_name : 'Unknown'})`);
+        return null; 
+    }
     
     const lowText = text.toLowerCase().trim();
     const line = "────────────────";
@@ -53,7 +63,7 @@ async function handleMessage(msg) {
     if (lowText === 'menu') {
         return `🏠 **MENU MAYO FINANCE**\n${line}\n` +
                `👤 **User Terdeteksi:** ${userLabel}\n` +
-               `🆔 **ID Anda:** \`${senderId}\`\n\n` +
+               `🆔 **ID:** \`${senderId}\`\n\n` +
                `💰 **Input Cepat:**\n\`15k bca mkn siang\`\n\`50rb gopay bensin\`\n\n` +
                `🔄 **Transfer & Saldo:**\n\`tf 50k bca ke gopay\`\n\`ss bca 1.500.000\`\n\n` +
                `📊 **Laporan & Data:**\n• \`rekap\` : Lihat saldo semua akun\n• \`daily\` : Transaksi hari ini\n• \`history\` : 10 transaksi terakhir\n• \`cari [kata]\` : Cari transaksi\n\n` +
@@ -89,7 +99,7 @@ async function handleMessage(msg) {
         return `🤖 **STATUS BOT MAYO**\n${line}\n` +
                `✅ Sistem: **ONLINE**\n` +
                `👤 User Aktif: **${userLabel}**\n` + 
-               `🆔 Detected ID: \`${senderId}\`\n` +
+               `🛡️ Security: **Whitelist Only**\n` +
                `🕒 Uptime: ${hours} Jam ${mins} Menit\n` +
                `📊 Database: ${rekap.rows.length} Data\n` +
                `📅 Server Time: ${new Date().toLocaleString('id-ID', {timeZone: 'Asia/Makassar'})}`;
