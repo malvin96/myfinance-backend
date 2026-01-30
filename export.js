@@ -2,62 +2,92 @@ import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import { getRekapLengkap } from "./db.js";
 
-export async function createPDF(data, title = "LAPORAN KEUANGAN") {
+export async function createPDF(data, title = "LAPORAN KEUANGAN MAYO") {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ margin: 30, size: 'A4' });
-      const fileName = `Laporan_Lengkap_${new Date().toISOString().slice(0,10)}.pdf`;
+      const doc = new PDFDocument({ margin: 40, size: 'A4' });
+      const fileName = `Laporan_MaYo_${new Date().toISOString().slice(0,10)}.pdf`;
       const stream = fs.createWriteStream(fileName);
       doc.pipe(stream);
 
-      // [UPDATE WITA] Generate Date
-      const dateString = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Makassar' });
+      const dateWITA = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Makassar' });
+      const liquidAccs = ['bca', 'cash', 'gopay', 'ovo', 'shopeepay'];
+      const assetAccs = ['bibit', 'mirrae', 'bca sekuritas'];
 
-      doc.fontSize(16).font('Helvetica-Bold').text(title.toUpperCase(), { align: 'center' });
-      doc.fontSize(10).font('Helvetica').text(`Generated: ${dateString} WITA`, { align: 'center' });
-      doc.moveDown();
+      // HEADER
+      doc.fontSize(20).font('Helvetica-Bold').text(title, { align: 'center' });
+      doc.fontSize(10).font('Helvetica').text(`Waktu Generate: ${dateWITA} WITA`, { align: 'center' });
+      doc.moveDown(2);
 
-      // --- I. SALDO AKHIR ---
-      doc.fontSize(12).font('Helvetica-Bold').text('I. POSISI SALDO AKHIR', { underline: true });
-      doc.moveDown(0.5);
-      doc.fontSize(9).font('Courier-Bold').text("USER     | AKUN           | SALDO (RP)");
-      doc.moveTo(30, doc.y).lineTo(350, doc.y).stroke();
+      // SECTION 1: POSISI KEKAYAAN (SMART SUMMARY)
+      doc.fontSize(14).font('Helvetica-Bold').text('I. RINGKASAN SALDO AKHIR', { underline: true });
       doc.moveDown(0.5);
 
       const rekap = getRekapLengkap();
-      doc.font('Courier');
-      rekap.rows.forEach(r => {
-        const u = r.user === 'M' ? 'MALVIN' : 'YOVITA';
-        const a = r.account.toUpperCase().padEnd(14);
-        const b = Math.round(r.balance).toString().padStart(12);
-        doc.text(`${u.padEnd(8)} | ${a} | ${b}`);
-      });
-      doc.moveDown();
-      doc.font('Helvetica-Bold').text(`TOTAL KEKAYAAN: ${Math.round(rekap.totalWealth).toLocaleString('id-ID')}`);
+      
+      const renderUserSection = (code, label) => {
+          const userRows = rekap.rows.filter(r => r.user === code);
+          if (userRows.length === 0) return;
+
+          doc.fontSize(12).font('Helvetica-Bold').text(`👤 USER: ${label}`);
+          doc.fontSize(10).font('Courier-Bold').text("   KATEGORI     | AKUN           | SALDO (RP)");
+          doc.moveTo(40, doc.y).lineTo(400, doc.y).stroke();
+          
+          let subLiquid = 0, subAsset = 0;
+          doc.font('Courier');
+
+          // Render Liquid
+          userRows.filter(r => liquidAccs.includes(r.account)).forEach(r => {
+              doc.text(`   [LIQUID]     | ${r.account.toUpperCase().padEnd(14)} | ${Math.round(r.balance).toLocaleString('id-ID').padStart(12)}`);
+              subLiquid += r.balance;
+          });
+
+          // Render Asset
+          userRows.filter(r => assetAccs.includes(r.account)).forEach(r => {
+              doc.text(`   [ASSET]      | ${r.account.toUpperCase().padEnd(14)} | ${Math.round(r.balance).toLocaleString('id-ID').padStart(12)}`);
+              subAsset += r.balance;
+          });
+
+          doc.moveDown(0.3);
+          doc.font('Helvetica-Bold').fontSize(10)
+             .text(`   > TOTAL LIQUID : Rp ${subLiquid.toLocaleString('id-ID')}`)
+             .text(`   > TOTAL ASSET  : Rp ${subAsset.toLocaleString('id-ID')}`)
+             .text(`   > TOTAL ${label} : Rp ${(subLiquid + subAsset).toLocaleString('id-ID')}`);
+          doc.moveDown(1);
+      };
+
+      renderUserSection('M', 'MALVIN');
+      renderUserSection('Y', 'YOVITA');
+
+      doc.fontSize(12).font('Helvetica-Bold').fillColor('blue')
+         .text(`TOTAL NETWORTH GABUNGAN: Rp ${Math.round(rekap.totalWealth).toLocaleString('id-ID')}`)
+         .fillColor('black');
       doc.moveDown(2);
 
-      // --- II. ALL HISTORY LOG ---
-      doc.fontSize(12).font('Helvetica-Bold').text('II. SEMUA RIWAYAT TRANSAKSI', { underline: true });
+      // SECTION 2: RAW DATA FOR AI ANALYSIS
+      doc.fontSize(14).font('Helvetica-Bold').text('II. RIWAYAT TRANSAKSI LENGKAP', { underline: true });
+      doc.fontSize(8).font('Helvetica-Oblique').text('*Data ini diformat agar mudah dibaca oleh AI GPT untuk analisis pola pengeluaran.');
       doc.moveDown(0.5);
-      doc.fontSize(8).font('Courier-Bold').text("WAKTU                | U | AKUN     | KATEGORI | NOMINAL     | CATATAN");
-      doc.moveTo(30, doc.y).lineTo(565, doc.y).stroke();
-      doc.moveDown(0.5);
-      doc.font('Courier');
 
+      doc.fontSize(8).font('Courier-Bold').text("WAKTU                | U | AKUN      | KATEGORI   | NOMINAL      | CATATAN");
+      doc.moveTo(40, doc.y).lineTo(550, doc.y).stroke();
+      doc.moveDown(0.5);
+
+      doc.font('Courier').fontSize(7);
       data.forEach(r => {
         const ts = r.timestamp.padEnd(20);
         const u = r.user;
-        const acc = r.account.toUpperCase().padEnd(9).slice(0, 9);
-        const cat = r.category.padEnd(9).slice(0, 9);
-        const amt = Math.round(r.amount).toString().padStart(11);
-        const note = r.note.slice(0, 25);
+        const acc = r.account.toUpperCase().padEnd(10).slice(0,10);
+        const cat = r.category.padEnd(10).slice(0,10);
+        const amt = r.amount.toString().padStart(12);
+        const note = r.note || "-";
         
         doc.text(`${ts} | ${u} | ${acc} | ${cat} | ${amt} | ${note}`);
+        if (doc.y > 750) doc.addPage();
       });
 
       doc.end();
       stream.on('finish', () => resolve(fileName));
-      stream.on('error', reject);
-    } catch (err) { reject(err); }
+    } catch (e) { reject(e); }
   });
 }
